@@ -1,0 +1,7 @@
+allennlp
+torch
+pyrouge
+dgl
+tensorflow_gpu
+spacy
+numpy
