@@ -31,6 +31,7 @@ class TensorBertSumPredictor(Predictor):
         raise NotImplementedError
         # run model for two times. One is for global mask, one is for local msk.
 
+
         other_data = {}
         return self._dataset_reader.text_to_instance(document,
                                                      summary,
