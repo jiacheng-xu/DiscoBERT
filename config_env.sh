@@ -17,5 +17,8 @@ sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/i
 cd /datadrive/
 
 git clone https://github.com/nlpyang/BertSum.git
+git clone https://github.com/PKU-TANGENT/NeuralEDUSeg.git
 wget http://nlp.stanford.edu/software/stanford-corenlp-full-2018-10-05.zip
 unzip stanford-corenlp-full-2018-10-05.zip
+
+export CLASSPATH=/datadrive/stanford-corenlp-full-2018-10-05/stanford-corenlp-3.9.2.jar

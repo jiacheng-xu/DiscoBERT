@@ -8,12 +8,14 @@
     3. replace train_data_path and validation_data_path with real paths
     4. any other parameters you want to change (e.g. dropout)
  */
-local root ='/datadrive/msSum/bert_data';
+local root ='/datadrive/GETSum/bert_data';
 local cuda_device = 0;
 local train_data_path =root+'/train/';
 
 local valid_data_path =root+'/test/';
 local test_data_path =root+'/test/';
+
+local bert_config_file='/datadrive/GETSum/configs/BertSumConfig.json';
 
 local BATCH_SIZE=13;
 //local ser_dir=root+'/tmp/';
@@ -71,6 +73,7 @@ local bert_vocab = "/datadrive/bert_vocab/vocabulary/bert-base-uncased-vocab.txt
     "model": {
         "type": "tensor_bert",
         "bert_model": bert_model,
+        "bert_config_file":bert_config_file,
         "dropout": 0.1
     },
      iterator:

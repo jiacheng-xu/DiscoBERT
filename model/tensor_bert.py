@@ -108,6 +108,7 @@ from torch.nn.init import xavier_uniform_
 class TensorBertSum(Model):
     def __init__(self, vocab: Vocabulary,
                  bert_model: Union[str, BertModel],
+                 bert_config_file,
                  trainable: bool = True,
                  index: str = "bert",
                  dropout: float = 0.2,
@@ -120,7 +121,7 @@ class TensorBertSum(Model):
         else:
             self.bert_model = bert_model
 
-        self.bert_model.config = BertConfig.from_json_file("/datadrive/msSum/configs/BertSumConfig.json")
+        self.bert_model.config = BertConfig.from_json_file(bert_config_file)
 
         for param in self.bert_model.parameters():
             param.requires_grad = trainable
@@ -287,7 +288,7 @@ def build_vocab():
 
 
 if __name__ == '__main__':
-    root = "/datadrive/msSum/"
+    root = "/datadrive/GETSum/"
     print(allennlp.__version__)
     # build_vocab()
     # exit()
