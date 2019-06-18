@@ -10,12 +10,13 @@
  */
 local root ='/datadrive/GETSum/bert_data';
 local cuda_device = 0;
+local lr=1e-5;
 local train_data_path =root+'/train/';
 
 local valid_data_path =root+'/test/';
 local test_data_path =root+'/test/';
 
-local bert_config_file='/datadrive/GETSum/configs/BertSumConfig.json';
+local bert_config='/datadrive/GETSum/configs/BertSumConfig.json';
 
 local BATCH_SIZE=13;
 //local ser_dir=root+'/tmp/';
@@ -73,7 +74,7 @@ local bert_vocab = "/datadrive/bert_vocab/vocabulary/bert-base-uncased-vocab.txt
     "model": {
         "type": "tensor_bert",
         "bert_model": bert_model,
-        "bert_config_file":bert_config_file,
+        "bert_config_file":bert_config,
         "dropout": 0.1
     },
      iterator:
@@ -91,22 +92,22 @@ local bert_vocab = "/datadrive/bert_vocab/vocabulary/bert-base-uncased-vocab.txt
     "trainer": {
         "optimizer": {
             "type": "adam",
-            "lr": 1e-4
+            "lr": lr
         },
-        "summary_interval":1,
+        "summary_interval":200,
         "keep_serialized_model_every_num_seconds":30*60,
         "validation_metric": "+R_1",
         "num_serialized_models_to_keep": 3,
-        "num_epochs": 20,
+        "num_epochs": 40,
 //        "grad_norm": 10.0,
         "patience": 10,
         "cuda_device": cuda_device,
         "grad_clipping":5,
-//        "learning_rate_scheduler":{
-//        "type":"noam",
-//        'model_size':512,
-//        "warmup_steps":8000
-//        },
+        "learning_rate_scheduler":{
+        "type":"noam",
+        'model_size':768,
+        "warmup_steps":8000
+        },
         "should_log_learning_rate":true,
     }
 }

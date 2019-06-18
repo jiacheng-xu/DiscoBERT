@@ -108,7 +108,7 @@ from torch.nn.init import xavier_uniform_
 class TensorBertSum(Model):
     def __init__(self, vocab: Vocabulary,
                  bert_model: Union[str, BertModel],
-                 bert_config_file,
+                 bert_config_file:str,
                  trainable: bool = True,
                  index: str = "bert",
                  dropout: float = 0.2,
@@ -197,7 +197,7 @@ class TensorBertSum(Model):
 
                 loss = raw_loss * sent_mask.float()
                 if random.random() < 0.01:
-                    print(loss)
+                    print(loss.data[0])
                 loss = torch.sum(loss)
                 output_dict["loss"] = loss
                 # self._accuracy(flatten_logits, flatten_labels, mask=sent_mask.view(-1))
@@ -290,10 +290,6 @@ def build_vocab():
 if __name__ == '__main__':
     root = "/datadrive/GETSum/"
     print(allennlp.__version__)
-    # build_vocab()
-    # exit()
-    # print(extract_n_grams("aaaa bbbbb cccc ddd ee ff"))
-    # {'aaaa_bbbbb_cccc', 'cccc_ddd_ee', 'ddd_ee_ff', 'bbbbb_cccc_ddd'}
 
     jsonnet_file = os.path.join(root, 'configs/baseline_bert.jsonnet')
     params = Params.from_file(jsonnet_file)
