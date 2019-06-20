@@ -95,7 +95,7 @@ class CNNDMDatasetReader(DatasetReader):
         self.bert_lut = list(self._token_indexers['bert'].vocab.items())
         self.bert_lut = [x[0] for x in self.bert_lut]
 
-    def _read(self, file_path: str = "/datadrive/msSum/bert_data"):
+    def _read(self, file_path):
         files = os.listdir(file_path)
 
         partition_name = identify_partition_name(file_path)

@@ -85,6 +85,7 @@ class PyrougeEvaluation(Metric):
                             os.path.join(self.ref_path, 'ref_{}.txt'.format(stamp)))
 
         rouge_str = rouge_results_to_str(rouges)
+        logger.info(rouge_str)
         print(rouge_str)
         logger.info("Name: {}\tLen: {}\tScore: {}".format(self.name, len(self.pred_str_bag), rouge_str))
         all_metrics = {}
@@ -111,8 +112,7 @@ class PyrougeEvaluation(Metric):
 def test_rouge(temp_dir, cand, ref):
     candidates = [line.strip() for line in open(cand, encoding='utf-8')]
     references = [line.strip() for line in open(ref, encoding='utf-8')]
-    print(len(candidates))
-    print(len(references))
+    logging.info("Len of cand and ref {}\t{}".format(len(candidates), len(references)))
     assert len(candidates) == len(references)
 
     cnt = len(candidates)

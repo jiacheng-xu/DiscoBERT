@@ -14,7 +14,9 @@ from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
 from allennlp.training.metrics import BooleanAccuracy, CategoricalAccuracy, SquadEmAndF1
 import random
 from pytorch_pretrained_bert.modeling import BertModel
-
+from pytorch_pretrained_bert import BertAdam
+from allennlp.nn import Activation
+from overrides import overrides
 
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models.model import Model
@@ -22,7 +24,7 @@ from allennlp.modules.token_embedders.bert_token_embedder import PretrainedBertM
 from allennlp.nn.initializers import InitializerApplicator
 from allennlp.training.metrics import CategoricalAccuracy
 from allennlp.commands.train import train_model
-
+from allennlp.commands.fine_tune import fine_tune_model_from_file_paths
 from allennlp.common import Params
 from allennlp.data.iterators import DataIterator
 # from segsum.dataset_readers.seg_sum_read import SegSumDatasetReader
@@ -103,15 +105,120 @@ from torch import autograd
 
 from torch.nn.init import xavier_uniform_
 
+from allennlp.common import FromParams
+
+from utility.learn_dgl import GCN
+import dgl
+from allennlp.modules.encoder_base import _EncoderBase
+from allennlp.common import Registrable
+
+
+class GraphEncoder(_EncoderBase, Registrable):
+    def get_input_dim(self) -> int:
+        raise NotImplementedError
+
+    def get_output_dim(self) -> int:
+        raise NotImplementedError
+
+    def is_bidirectional(self):
+        raise NotImplementedError
+
+
+import itertools
+
+
+@GraphEncoder.register("identity")
+class Identity(GraphEncoder, torch.nn.Module, FromParams):
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def transform_sent_rep(self, sent_rep, sent_mask):
+        return sent_rep
+
+
+@GraphEncoder.register("gcn")
+class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
+
+    def __init__(self, input_dims: List[int],
+                 num_layers: int,
+                 hidden_dims: Union[int, List[int]],
+                 activations='relu'):
+        super(GCN_layers, self).__init__()
+        if not isinstance(hidden_dims, list):
+            hidden_dims = [hidden_dims] * num_layers
+        # TODO remove hard code relu
+        activations = [torch.nn.functional.relu] * num_layers
+        assert len(input_dims) == len(hidden_dims) == len(activations) == num_layers
+        gcn_layers = []
+        for layer_input_dim, layer_output_dim, activate in zip(input_dims, hidden_dims, activations):
+            gcn_layers.append(GCN(layer_input_dim, layer_output_dim, activate))
+        self.layers = nn.ModuleList(gcn_layers)
+        self._output_dim = hidden_dims[-1]
+        self.input_dim = input_dims[0]
+
+    def transform_sent_rep(self, sent_rep, sent_mask):
+        init_graphs = self.convert_sent_tensors_to_graphs(sent_rep, sent_mask)
+        unpadated_graphs = []
+        for g in init_graphs:
+            updated_graph = self.forward(g)
+            unpadated_graphs.append(updated_graph)
+        recovered_sent = torch.stack(unpadated_graphs, dim=0)
+        assert recovered_sent.shape == sent_rep.shape
+        return recovered_sent
+
+    def convert_sent_tensors_to_graphs(self, sent, sent_mask):
+        batch_size, max_sent_num, hdim = sent.shape
+        effective_length = torch.sum(sent_mask, dim=1).long().tolist()
+        graph_bag = []
+        for b in range(batch_size):
+            this_sent = sent[b]  # max_sent, hdim
+            # this_mask = sent_mask[b]
+            this_len = effective_length[b]
+
+            G = dgl.DGLGraph()
+            G.add_nodes(max_sent_num)
+            fc_src = [i for i in range(this_len)] * this_len
+            fc_tgt = [[i] * this_len for i in range(this_len)]
+            fc_tgt = list(itertools.chain.from_iterable(fc_tgt))
+
+            G.add_edges(fc_src, fc_tgt)
+            G.ndata['h'] = this_sent  # every node has the parameter
+            graph_bag.append(G)
+        return graph_bag
+
+    @overrides
+    def forward(self, g):
+        # h = g.in_degrees().view(-1, 1).float()
+        h = g.ndata['h']
+        for conv in self.layers:
+            h = conv(g, h)
+        g.ndata['h'] = h
+        hg = dgl.mean_nodes(g, 'h')
+        # return g, g.ndata['h'], hg  # g is the raw graph, h is the node rep, and hg is the mean of all h
+        return g.ndata['h']
+
+    def get_input_dim(self) -> int:
+        return self.input_dim
+
+    def get_output_dim(self) -> int:
+        return self._output_dim
+
+    @overrides
+    def is_bidirectional(self):
+        return False
+
 
 @Model.register("tensor_bert")
 class TensorBertSum(Model):
     def __init__(self, vocab: Vocabulary,
                  bert_model: Union[str, BertModel],
-                 bert_config_file:str,
+                 bert_config_file: str,
+                 graph_encoder: GraphEncoder,
                  trainable: bool = True,
                  index: str = "bert",
                  dropout: float = 0.2,
+                 tmp_dir: str = '/datadrive/tmp/',
+
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         # super(TensorBertSum, self).__init__(vocab, regularizer)
@@ -122,7 +229,7 @@ class TensorBertSum(Model):
             self.bert_model = bert_model
 
         self.bert_model.config = BertConfig.from_json_file(bert_config_file)
-
+        self._graph_encoder = graph_encoder
         for param in self.bert_model.parameters():
             param.requires_grad = trainable
 
@@ -131,13 +238,24 @@ class TensorBertSum(Model):
         self._dropout = torch.nn.Dropout(p=dropout)
         self._classification_layer = torch.nn.Linear(in_features, 1)
         # self._transfrom_layer = torch.nn.Linear(100, 2)
-        self._accuracy = CategoricalAccuracy()
+        # self._accuracy = CategoricalAccuracy()
         self._loss = torch.nn.BCELoss(reduction='none')
-        self._rouge = PyrougeEvaluation(name='rouge')
+
+        self._rouge = PyrougeEvaluation(name='rouge', cand_path=tmp_dir, ref_path=tmp_dir, path_to_valid=tmp_dir)
         self._sigmoid = nn.Sigmoid()
-        self.bert_model.requires_grad = False
+        # self.bert_model.requires_grad = False
         initializer(self._classification_layer)
         # xavier_uniform_(self._classification_layer._parameters())
+
+    def transform_sent_rep(self, sent_rep, sent_mask):
+        init_graphs = self._graph_encoder.convert_sent_tensors_to_graphs(sent_rep, sent_mask)
+        unpadated_graphs = []
+        for g in init_graphs:
+            updated_graph = self._graph_encoder(g)
+            unpadated_graphs.append(updated_graph)
+        recovered_sent = torch.stack(unpadated_graphs, dim=0)
+        assert recovered_sent.shape == sent_rep.shape
+        return recovered_sent
 
     @overrides
     def forward(self, tokens,
@@ -169,6 +287,9 @@ class TensorBertSum(Model):
             sent_rep, sent_mask = efficient_head_selection(top_vec, clss)
             # sent_rep: batch size, sent num, bert hid dim
             # sent_mask: batch size, sent num
+
+            sent_rep = self.transform_sent_rep(sent_rep, sent_mask)
+
             batch_size, sent_num = sent_mask.shape
             scores = self._sigmoid(self._classification_layer(self._dropout(sent_rep)))
             scores = scores.squeeze(-1)
@@ -206,9 +327,9 @@ class TensorBertSum(Model):
             ##
             # for name, param in self.named_parameters():
             #     print(name)
-                # print(param)
-                # if param.grad is not None:
-                    # print(param.grad[0])
+            # print(param)
+            # if param.grad is not None:
+            # print(param.grad[0])
             ##
             type = meta_field[0]['type']
             if type == 'valid' or type == 'test':
@@ -224,7 +345,7 @@ class TensorBertSum(Model):
         meta = output_dict['meta']
         # expanded_msk = masks.unsqueeze(2).expand_as(probs)
         # expanded_msk = masks.unsqueeze(2)
-        tuned_probs = scores + (masks.float() - 1)
+        tuned_probs = scores + (masks.float() - 1) * 10
         # scores = scores + (sent_mask.float() - 1)
         # tuned_probs = tuned_probs.cpu().data.numpy()[:, :, 1]
         tuned_probs = tuned_probs.cpu().data.numpy()
@@ -251,8 +372,9 @@ class TensorBertSum(Model):
                         predictions_idx.append(sel_i)
                         trigrams.update(cand_trigram)
                 except IndexError:
-                    print("Index Error")
-                    break
+                    logger.warning("Index Error\n{}".format(this_meta['src_txt']))
+                    print("Index Error\n{}\n{}".format(this_meta['src_txt'], sel_indexs))
+                    continue
                 if len(predictions) >= 3:
                     break
             # if random.random() < 0.001:
@@ -264,11 +386,12 @@ class TensorBertSum(Model):
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
         dict_of_rouge = self._rouge.get_metric(reset)
-        metrics = {'accuracy': self._accuracy.get_metric(reset),
-                   'R_1': dict_of_rouge[self._rouge.name + '_1'],
-                   'R_2': dict_of_rouge[self._rouge.name + '_2'],
-                   'R_L': dict_of_rouge[self._rouge.name + '_L']
-                   }
+        metrics = {
+            # 'accuracy': self._accuracy.get_metric(reset),
+            'R_1': dict_of_rouge[self._rouge.name + '_1'],
+            'R_2': dict_of_rouge[self._rouge.name + '_2'],
+            'R_L': dict_of_rouge[self._rouge.name + '_L']
+        }
         return metrics
 
 
@@ -288,8 +411,13 @@ def build_vocab():
 
 
 if __name__ == '__main__':
-    root = "/datadrive/GETSum/"
-    print(allennlp.__version__)
+    if os.path.isdir('/datadrive'):
+        root = "/datadrive/GETSum/"
+    elif os.path.isdir('/scratch/cluster/jcxu'):
+        root = '/scratch/cluster/jcxu/GETSum'
+    else:
+        raise NotImplementedError
+    logger.info("AllenNLP version {}".format(allennlp.__version__))
 
     jsonnet_file = os.path.join(root, 'configs/baseline_bert.jsonnet')
     params = Params.from_file(jsonnet_file)
@@ -298,4 +426,6 @@ if __name__ == '__main__':
     model = train_model(params, serialization_dir)
     # serialization_dir = '/backup3/jcxu/NeuSegSum/tmp_expsn7oe84zt'
     # print(serialization_dir)
-    params = Params.from_file(jsonnet_file)
+    # params = Params.from_file(jsonnet_file)
+    print(params)
+    print(serialization_dir)

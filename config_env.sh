@@ -41,3 +41,6 @@ cd ../../../..
 pyrouge_set_rouge_path /home/intern/pythonrouge/pythonrouge/RELEASE-1.5.5
 sudo apt-get install libxml-parser-perl
 python -m spacy download en
+sudo apt-get install htop
+
+conda install -c dglteam dgl-cuda10.0

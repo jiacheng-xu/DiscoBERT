@@ -8,17 +8,25 @@
     3. replace train_data_path and validation_data_path with real paths
     4. any other parameters you want to change (e.g. dropout)
  */
-local root ='/datadrive/GETSum/bert_data';
-local cuda_device = 0;
+
+local global_root = '/datadrive/GETSum';
+//local global_root='/scratch/cluster/jcxu/GETSum';
+
+local root =global_root+'/bert_data';
+local cuda_device = 2;
+local bert_trainable=true;
+local optimizer="bert_adam";
 local lr=1e-5;
+local warmup=0.1;
+//local lr=2e-5;
 local train_data_path =root+'/train/';
 
 local valid_data_path =root+'/test/';
 local test_data_path =root+'/test/';
 
-local bert_config='/datadrive/GETSum/configs/BertSumConfig.json';
+local bert_config=global_root+'/configs/BertSumConfig.json';
 
-local BATCH_SIZE=13;
+local BATCH_SIZE=12;
 //local ser_dir=root+'/tmp/';
 ####
 //local train_data_path = test_data_path;
@@ -43,8 +51,7 @@ local base_iterator_unlimit={
 # For a real model you'd want to use "bert-base-uncased" or similar.
 //local bert_model = "allennlp/tests/fixtures/bert/vocab.txt";
 local bert_model = "bert-base-uncased";
-local bert_vocab = "/datadrive/bert_vocab/vocabulary/bert-base-uncased-vocab.txt";
-//local bert_vocab = "/datadrive/bert_vocab/";
+local bert_vocab = global_root+"/bert_vocab";
 
 {
     "dataset_reader": {
@@ -63,11 +70,10 @@ local bert_vocab = "/datadrive/bert_vocab/vocabulary/bert-base-uncased-vocab.txt
     },
     "datasets_for_vocab_creation": [],
      vocabulary: {
-    directory_path: '/datadrive/bert_vocab',
+    directory_path: bert_vocab,
     extend: false,
   },
 //
-//    "vocabulary":bert_vocab,
     "train_data_path": train_data_path,
     "validation_data_path": valid_data_path,
 
@@ -75,10 +81,11 @@ local bert_vocab = "/datadrive/bert_vocab/vocabulary/bert-base-uncased-vocab.txt
         "type": "tensor_bert",
         "bert_model": bert_model,
         "bert_config_file":bert_config,
-        "dropout": 0.1
+        "trainable":bert_trainable,
+        "dropout": 0.1,
+        "graph_encoder":{type:"gcn", input_dims:[768,768], num_layers:2,hidden_dims:[768,768]}
     },
-     iterator:
-     base_iterator,
+     "iterator":base_iterator,
 //     {type: 'multiprocess',
 //    base_iterator: base_iterator,
 //    num_workers: 1,
@@ -91,10 +98,11 @@ local bert_vocab = "/datadrive/bert_vocab/vocabulary/bert-base-uncased-vocab.txt
     output_queue_size: 130},
     "trainer": {
         "optimizer": {
-            "type": "adam",
-            "lr": lr
+            "type":optimizer,
+            "lr": lr,
+            "warmup":warmup,
         },
-        "summary_interval":200,
+        "summary_interval":1000,
         "keep_serialized_model_every_num_seconds":30*60,
         "validation_metric": "+R_1",
         "num_serialized_models_to_keep": 3,
@@ -103,11 +111,12 @@ local bert_vocab = "/datadrive/bert_vocab/vocabulary/bert-base-uncased-vocab.txt
         "patience": 10,
         "cuda_device": cuda_device,
         "grad_clipping":5,
-        "learning_rate_scheduler":{
-        "type":"noam",
-        'model_size':768,
-        "warmup_steps":8000
-        },
+//        "learning_rate_scheduler":{
+//        "type":"noam",
+//        "type":"noam",
+//        'model_size':768,
+//        "warmup_steps":8000
+//        },
         "should_log_learning_rate":true,
     }
 }
