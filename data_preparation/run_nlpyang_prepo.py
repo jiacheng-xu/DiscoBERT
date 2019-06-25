@@ -68,11 +68,11 @@ if __name__ == '__main__':
     # from data_preparation.nlpyang_prepo import tokenize
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-mode", default='format_to_bert', type=str,
+    parser.add_argument("-mode", default='format_to_lines', type=str,
                         help='tokenize or format_to_lines or format_to_bert')
     parser.add_argument("-oracle_mode",
-                        # default='greedy',
-                        default='combination',
+                        default='greedy',
+                        # default='combination',
                         type=str,
                         help='how to generate oracle summaries, greedy or combination, combination will generate more accurate oracles but take much longer time.')
     parser.add_argument("-map_path", default='/datadrive/GETSum/data_preparation/urls')
@@ -129,13 +129,13 @@ if __name__ == '__main__':
                        os.path.join(args.data_dir, args.rel_rst_seg_path))
     elif args.mode == 'format_to_lines':
         seg_path = os.path.join(args.data_dir, args.rel_rst_seg_path)
-
+        tokenized_doc = os.path.join(args.data_dir, args.rel_tok_path)
         save_path = os.path.join(args.data_dir,
                                  args.rel_save_path)
         if not os.path.exists(save_path):
             os.mkdir(save_path)
         summary_path = os.path.join(args.data_dir, args.rel_split_sum_path)
-        format_to_lines(map_urls_path=args.map_path, seg_path=seg_path, shard_size=args.shard_size,
+        format_to_lines(map_urls_path=args.map_path, seg_path=seg_path, tok_path=tokenized_doc,shard_size=args.shard_size,
                         save_path=save_path, summary_path=summary_path, data_name=args.data_name)
     elif args.mode == 'format_to_bert':
         from data_preparation.nlpyang_data_builder import format_to_bert
@@ -147,6 +147,6 @@ if __name__ == '__main__':
         start_time = time.time()
         format_to_bert(save_path,
                        oracle_mode=args.oracle_mode,
-                       oracle_sent_num=10)
+                       oracle_sent_num=6)
         duration = time.time() - start_time
         print("Mode {}\tDuration {}".format(args.oracle_mode, duration))

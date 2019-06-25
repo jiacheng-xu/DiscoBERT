@@ -2,6 +2,8 @@
 # MS machines
 cd /
 sudo chmod 777 datadrive/
+wget https://repo.anaconda.com/archive/Anaconda2-2019.03-Linux-x86_64.sh
+sh Anaconda2-2019.03-Linux-x86_64.sh
 wget https://repo.anaconda.com/archive/Anaconda3-2019.03-Linux-x86_64.sh
 sh Anaconda3-2019.03-Linux-x86_64.sh
 

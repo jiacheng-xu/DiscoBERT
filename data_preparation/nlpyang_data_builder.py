@@ -72,8 +72,93 @@ def read_merge(file):
     return [clean(sent).split(" ") for sent in source]
 
 
-def read_bracket():
-    pass
+from collections import OrderedDict
+from ast import literal_eval as make_tuple
+
+
+def return_tree(d: OrderedDict):
+    root_node = d.popitem()  # root node
+    root_node_sidx, root_node_eidx, root_node_node, root_node_rel = root_node[1]
+    if len(d) == 0:
+        minimal_nucleus = [root_node_sidx] if root_node_node == 'Nucleus' else []
+        return {
+            'left': None,
+            'right': None,
+            'node': root_node[1],
+            'minimal': minimal_nucleus,
+            'dep': []
+        }
+    listed_items = list(d.items())
+    right_child = listed_items[-1]  #
+    r_sidx, r_eidx, r_node, r_rel = right_child[1]
+
+    l_sidx = root_node_sidx
+    l_eidx = r_sidx - 1
+
+    keys = list(d.keys())
+    cut_point = keys.index("{}_{}".format(l_sidx, l_eidx)) + 1
+    left = listed_items[:cut_point]
+    right = listed_items[cut_point:]
+
+    left_node = return_tree(OrderedDict(left))
+    right_node = return_tree(OrderedDict(right))
+    my_minimal = []
+    if left_node['node'][2] == 'Nucleus':
+        my_minimal += left_node['minimal']
+    if right_node['node'][2] == 'Nucleus':
+        my_minimal += right_node['minimal']
+
+    if left_node['left'] == None and left_node['node'][2] == 'Satellite':
+        left_node['dep'] = my_minimal
+    # elif left_node['left'] == None and left_node['node'][2] == 'Nucleus':
+    if right_node['right'] == None and right_node['node'][2] == 'Satellite':
+        right_node['dep'] = my_minimal
+        # print(right_node['node'])
+        # print(my_minimal)
+
+    if right_node['right'] == None and left_node['right'] == None:
+        unit = [left_node, right_node]
+    elif right_node['right'] == None and left_node['right']:
+        unit = left_node['unit'] + [right_node]
+    elif right_node['right'] and left_node['right'] == None:
+        unit = right_node['unit'] + [left_node]
+    else:
+        unit = left_node['unit'] + right_node['unit']
+    return {'left': left_node,
+            'right': right_node,
+            'node': root_node[1],
+            'minimal': my_minimal,
+            'unit': unit}
+
+    # return_tree right  sidx - ?
+    # return_tree left     ? - eidx
+
+
+def read_bracket(bracket_file):
+    # print(bracket_file)
+    with open(bracket_file, 'r') as fd:
+        lines = fd.read().splitlines()
+    treebank = [None for _ in range(1000)]
+    d = OrderedDict()
+    max_num = -1
+
+    for l in lines:
+        tup = make_tuple(l)
+        index, node, relation = tup
+        sidx, eidx = index
+        d['{}_{}'.format(sidx, eidx)] = [sidx, eidx, node, relation]
+        max_num = max(max_num, eidx)
+        if sidx == eidx:
+            treebank[sidx] = [node, relation, None]
+    d['{}_{}'.format(1, max_num)] = [1, max_num, 'Nucleus', 'ROOT']
+
+    # construct tree
+    constructed_tree = return_tree(d)
+    # anchor minimal dependence of all satelite
+    unit = constructed_tree['unit']
+    meta = [[u['node'][0], u['node'][2], u['node'][3], u['dep']] for u in unit]
+    meta = sorted(meta, key=lambda tup: tup[0])
+    return meta
 
 
 import nltk
@@ -92,7 +177,7 @@ def load_merge_bracket(fname, path):
     merge_file = fname + '.story.doc.merge'
     brack_file = fname + '.story.doc.brackets'
     source = read_merge(os.path.join(path, merge_file))
-
+    tree_dep = read_bracket(os.path.join(path, brack_file))
     return source
 
 
@@ -397,7 +482,7 @@ def _format_to_bert(params):
     gc.collect()
 
 
-def format_to_lines(map_urls_path, seg_path, shard_size, save_path, summary_path, data_name):
+def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, summary_path, data_name):
     if not os.path.exists(save_path):
         os.mkdir(save_path)
         print("Creating {}".format(save_path))
@@ -420,7 +505,10 @@ def format_to_lines(map_urls_path, seg_path, shard_size, save_path, summary_path
 
     corpora = {'train': train_files, 'valid': valid_files, 'test': test_files}
     for corpus_type in ['train', 'valid', 'test']:
-        a_lst = [(f, seg_path, summary_path) for f in corpora[corpus_type]]
+        a_lst = [(f, seg_path, tok_path, summary_path) for f in corpora[corpus_type]]
+
+        # unparel test
+        format_processed_data(a_lst[0])
 
         pool = Pool(multiprocessing.cpu_count())
         dataset = []
@@ -445,11 +533,83 @@ def format_to_lines(map_urls_path, seg_path, shard_size, save_path, summary_path
                 dataset = []
 
 
+import xml.etree.ElementTree as ET
+from lxml import etree
+
+
+def load_snlp(f, tok_path):
+    # f = 'ff97bd78c563c09ea47e2a4a69c0bd53901012d9'
+    full_file_name = os.path.join(tok_path, "{}.story.doc.xml".format(f))
+    with open(full_file_name) as fobj:
+        xmlstr = fobj.read()
+    tree = etree.parse(full_file_name)
+    root = tree.getroot()
+
+    doc_id = root.findall("./document/docId")[0]
+    corefrences = root.findall("./document/coreference")[0]
+    sentences = root.findall("./document/sentences")[0]
+    return_sentences_obj = []
+    for sent in list(sentences):
+        sent_id = int(sent.attrib['id']) - 1
+        sent_words = []
+        ele_in_sent = list(sent)
+        toks = ele_in_sent[0]
+        token_list = list(toks)
+        for t in token_list:
+            word = list(t)[0]
+            sent_words.append(word.text)
+        parse = ele_in_sent[1].text
+        return_sentences_obj.append({'sent_id': sent_id,  # USE 0 based indexing
+                                     'tokens': sent_words,
+                                     'parse': parse,
+                                     'corefs': [[] for _ in range(len(sent_words))]
+                                     })
+    coref_bag = []
+    for coref in list(corefrences):
+        mentions = list(coref)
+
+        return_mentions = []
+        efficient_mentions = []
+        repre_sent_id = -1
+        for m in mentions:
+            mention_elements = list(m)
+            sent_location = int(mention_elements[0].text) - 1
+            head_location_in_sent = int(mention_elements[3].text) - 1
+            text = mention_elements[4].text
+            if m.get('representative'):
+                represent = True
+                repre_sent_id = sent_location
+            else:
+                represent = False
+            efficient_mentions.append((sent_location, head_location_in_sent, represent))
+            return_mentions.append({'sent_id': sent_location,
+                                    'word_id': head_location_in_sent,
+                                    'text': text,
+                                    'rep': represent
+                                    })
+
+        # load coref mention
+        for single_coref in efficient_mentions:
+            single_coref_sent, single_coref_word, _ = single_coref
+            return_sentences_obj[single_coref_sent]['corefs'][single_coref_word] = efficient_mentions
+        coref_bag.append(return_mentions)
+
+    return {
+        'doc_id': doc_id,
+        'coref': coref_bag,
+        'sent': return_sentences_obj
+    }
+
+
 def format_processed_data(param):
-    f, seg_path, summary_path = param
+    f, seg_path, tok_path, summary_path = param
+    snlp_dict = load_snlp(f, tok_path)  # 'doc_id' 'coref' 'sent'
     source = load_merge_bracket(f, seg_path)
     target = load_sum(f, summary_path)
-    return {'src': source, 'tgt': target}
+    return {'src': source, 'tgt': target,
+            'sent': snlp_dict['sent'],
+            'doc_id': snlp_dict['doc_id'],
+            'coref': snlp_dict['coref']}
 
 
 def _format_to_lines(f):
