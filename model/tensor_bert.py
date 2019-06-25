@@ -1,116 +1,31 @@
-import logging
-from typing import Any, Dict, List, Optional, Union
+import logging, itertools, dgl, random, torch, tempfile
+from typing import Dict, List, Optional, Union
 import numpy as np
-import torch
-from torch.nn.functional import nll_loss
-from overrides import overrides
-from allennlp.common.checks import check_dimensions_match
-from allennlp.data import Vocabulary
-from allennlp.models.model import Model
-from allennlp.modules import Highway
-from allennlp.modules import Seq2SeqEncoder, SimilarityFunction, TimeDistributed, TextFieldEmbedder
-from allennlp.modules.matrix_attention.legacy_matrix_attention import LegacyMatrixAttention
-from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
-from allennlp.training.metrics import BooleanAccuracy, CategoricalAccuracy, SquadEmAndF1
-import random
-from pytorch_pretrained_bert.modeling import BertModel
-from pytorch_pretrained_bert import BertAdam
-from allennlp.nn import Activation
-from overrides import overrides
-
+from allennlp.commands.train import train_model
+from allennlp.common import Params
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models.model import Model
 from allennlp.modules.token_embedders.bert_token_embedder import PretrainedBertModel
+from allennlp.nn import RegularizerApplicator
 from allennlp.nn.initializers import InitializerApplicator
-from allennlp.training.metrics import CategoricalAccuracy
-from allennlp.commands.train import train_model
-from allennlp.commands.fine_tune import fine_tune_model_from_file_paths
-from allennlp.common import Params
-from allennlp.data.iterators import DataIterator
-# from segsum.dataset_readers.seg_sum_read import SegSumDatasetReader
+from overrides import overrides
+from pytorch_pretrained_bert.modeling import BertModel
+from torch.nn.functional import nll_loss
+import torch.nn as nn
+from torch import autograd
+from allennlp.common import FromParams
+from utility.learn_dgl import GCN
+from allennlp.modules.encoder_base import _EncoderBase
+from allennlp.common import Registrable
 from model.data_reader import CNNDMDatasetReader
-from allennlp.commands.evaluate import evaluate
-from allennlp.data.dataset_readers import DatasetReader
-from allennlp.models.archival import load_archive
-
 # from model.pythonrouge_metrics import RougeStrEvaluation
 from model.pyrouge_metrics import PyrougeEvaluation
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
-import tempfile
 from pytorch_pretrained_bert import BertConfig
 
-
-def detect_nan(input_tensor) -> bool:
-    if torch.sum(torch.isnan(input_tensor)) > 0:
-        return True
-    else:
-        return False
-
-
-def flatten_2d_matrix_to_1d(two_dim_matrix, word_num):
-    batch_size, sent_num = two_dim_matrix.shape
-    bias = torch.arange(start=0, end=batch_size, dtype=torch.long, device=two_dim_matrix.device,
-                        requires_grad=False) * word_num
-    bias = bias.view(-1, 1)
-    bias = bias.repeat(1, sent_num).view(-1)
-    flatten_2d_raw = two_dim_matrix.view(-1)
-
-    return (flatten_2d_raw + bias).long()
-
-
-def flatten_3d_tensor_to_2d(three_dim_tensor):
-    # flatten the first two dim
-    shape0, shape1, shape2 = three_dim_tensor.shape
-    return three_dim_tensor.view(shape0 * shape1, shape2)
-
-
-def efficient_head_selection(top_vec, clss):
-    assert top_vec.shape[0] == clss.shape[0]
-    word_num = top_vec.shape[1]
-    batch_size = top_vec.shape[0]
-    sent_num = clss.shape[1]
-    sent_mask = (clss >= -0.0001).float()  # batch size, max sent num
-    # if random.random()<0.01:
-    #     print(sent_mask)
-    clss_non_neg = torch.nn.functional.relu(clss).long()
-
-    matrix_top_vec = flatten_3d_tensor_to_2d(top_vec)  # batch size, word seq len, hdim
-    vec_clss_non_neg = flatten_2d_matrix_to_1d(clss_non_neg, word_num)
-    flatten_selected_sent_rep = torch.index_select(matrix_top_vec, 0, vec_clss_non_neg)
-
-    selected_sent_rep = flatten_selected_sent_rep.view(batch_size, sent_num, -1)
-    selected_sent_rep = selected_sent_rep * sent_mask.unsqueeze(-1)
-    # print(selected_sent_rep.shape)
-    # print(sent_mask.shape)
-    return selected_sent_rep, sent_mask
-
-
-def extract_n_grams(inp_str, ngram: int = 3, connect_punc='_') -> set:
-    inp_list = inp_str.split(" ")
-    if len(inp_list) < 3:
-        return set()
-    tmp = []
-    for idx in range(len(inp_list) - ngram + 1):
-        this = [inp_list[idx + j] for j in range(ngram)]
-        tmp.append(connect_punc.join(this))
-    return set(tmp)
-
-
-import torch.nn as nn
-
-from allennlp.training.metrics import Metric
-from torch import autograd
-
-from torch.nn.init import xavier_uniform_
-
-from allennlp.common import FromParams
-
-from utility.learn_dgl import GCN
-import dgl
-from allennlp.modules.encoder_base import _EncoderBase
-from allennlp.common import Registrable
+from model.model_util import *
 
 
 class GraphEncoder(_EncoderBase, Registrable):
@@ -124,7 +39,20 @@ class GraphEncoder(_EncoderBase, Registrable):
         raise NotImplementedError
 
 
-import itertools
+from allennlp.modules.seq2seq_encoders.seq2seq_encoder import Seq2SeqEncoder
+from allennlp.modules.seq2seq_encoders.multi_head_self_attention import MultiHeadSelfAttention
+
+
+@GraphEncoder.register("seq2seq")
+class S2S(GraphEncoder, torch.nn.Module, FromParams):
+    def __init__(self, seq2seq_encoder: Seq2SeqEncoder):
+        super().__init__()
+        self.seq2seq = seq2seq_encoder
+
+    def transform_sent_rep(self, sent_rep, sent_mask):
+        ouputs = self.seq2seq.forward(sent_rep, sent_mask)
+        # print(ouputs.shape)
+        return ouputs
 
 
 @GraphEncoder.register("identity")
@@ -134,6 +62,9 @@ class Identity(GraphEncoder, torch.nn.Module, FromParams):
 
     def transform_sent_rep(self, sent_rep, sent_mask):
         return sent_rep
+
+
+from allennlp.modules.feedforward import FeedForward
 
 
 @GraphEncoder.register("gcn")
@@ -147,7 +78,7 @@ class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
         if not isinstance(hidden_dims, list):
             hidden_dims = [hidden_dims] * num_layers
         # TODO remove hard code relu
-        activations = [torch.nn.functional.relu] * num_layers
+        activations = [torch.nn.functional.tanh] * num_layers
         assert len(input_dims) == len(hidden_dims) == len(activations) == num_layers
         gcn_layers = []
         for layer_input_dim, layer_output_dim, activate in zip(input_dims, hidden_dims, activations):
@@ -155,6 +86,8 @@ class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
         self.layers = nn.ModuleList(gcn_layers)
         self._output_dim = hidden_dims[-1]
         self.input_dim = input_dims[0]
+        self.ln = LayerNorm(hidden_dims[0])
+        self._mlp = FeedForward(hidden_dims[0], 1, hidden_dims[0], torch.nn.functional.sigmoid)
 
     def transform_sent_rep(self, sent_rep, sent_mask):
         init_graphs = self.convert_sent_tensors_to_graphs(sent_rep, sent_mask)
@@ -190,8 +123,15 @@ class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
     def forward(self, g):
         # h = g.in_degrees().view(-1, 1).float()
         h = g.ndata['h']
+        output = h
         for conv in self.layers:
-            h = conv(g, h)
+            output = conv(g, output)
+            print(output)
+        norm_output = self.ln(h + output)
+        print(norm_output)
+        # m = self._mlp(norm_output)
+        # h = self.ln(norm_output + m)
+        h = norm_output
         g.ndata['h'] = h
         hg = dgl.mean_nodes(g, 'h')
         # return g, g.ndata['h'], hg  # g is the raw graph, h is the node rep, and hg is the mean of all h
@@ -206,6 +146,10 @@ class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
     @overrides
     def is_bidirectional(self):
         return False
+
+
+from allennlp.modules.layer_norm import LayerNorm
+from allennlp.modules.masked_layer_norm import MaskedLayerNorm
 
 
 @Model.register("tensor_bert")
@@ -230,6 +174,7 @@ class TensorBertSum(Model):
 
         self.bert_model.config = BertConfig.from_json_file(bert_config_file)
         self._graph_encoder = graph_encoder
+
         for param in self.bert_model.parameters():
             param.requires_grad = trainable
 
@@ -240,7 +185,7 @@ class TensorBertSum(Model):
         # self._transfrom_layer = torch.nn.Linear(100, 2)
         # self._accuracy = CategoricalAccuracy()
         self._loss = torch.nn.BCELoss(reduction='none')
-
+        self._layer_norm = MaskedLayerNorm(768)
         self._rouge = PyrougeEvaluation(name='rouge', cand_path=tmp_dir, ref_path=tmp_dir, path_to_valid=tmp_dir)
         self._sigmoid = nn.Sigmoid()
         # self.bert_model.requires_grad = False
@@ -288,8 +233,9 @@ class TensorBertSum(Model):
             # sent_rep: batch size, sent num, bert hid dim
             # sent_mask: batch size, sent num
 
-            sent_rep = self.transform_sent_rep(sent_rep, sent_mask)
-
+            # sent_rep = self._layer_norm(sent_rep, sent_mask)
+            sent_rep = self._graph_encoder.transform_sent_rep(sent_rep, sent_mask)
+            # sent_rep = self._layer_norm(sent_rep, sent_mask)
             batch_size, sent_num = sent_mask.shape
             scores = self._sigmoid(self._classification_layer(self._dropout(sent_rep)))
             scores = scores.squeeze(-1)
@@ -373,7 +319,7 @@ class TensorBertSum(Model):
                         trigrams.update(cand_trigram)
                 except IndexError:
                     logger.warning("Index Error\n{}".format(this_meta['src_txt']))
-                    print("Index Error\n{}\n{}".format(this_meta['src_txt'], sel_indexs))
+                    # print("Index Error\n{}\n{}".format(this_meta['src_txt'], sel_indexs))
                     continue
                 if len(predictions) >= 3:
                     break
@@ -395,8 +341,6 @@ class TensorBertSum(Model):
         return metrics
 
 
-import logging
-import sys
 # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 import os
 import allennlp

@@ -83,7 +83,7 @@ class CNNDMDatasetReader(DatasetReader):
                  lazy: bool,
                  bert_model_name: str,
                  token_indexers: Dict[str, TokenIndexer] = PretrainedBertIndexer("bert-base-uncased"),
-                 debug: bool = True,
+                 debug: bool = False,
                  ) -> None:
         super().__init__(lazy=lazy)
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
@@ -99,8 +99,9 @@ class CNNDMDatasetReader(DatasetReader):
         files = os.listdir(file_path)
 
         partition_name = identify_partition_name(file_path)
-        # if partition_name == 'test':
-        #     files = files[:3]
+        if partition_name == 'test' and self._debug:
+            logger.warning("debug mode only loads part of test set!")
+            files = files[:2]
         random.seed(112312)
         random.shuffle(files)
         cnt = 0

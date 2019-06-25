@@ -1,32 +1,46 @@
-/** You could basically use this config to train your own BERT classifier,
-    with the following changes:
-    1. change the `bert_model` variable to "bert-base-uncased" (or whichever you prefer)
-    2. swap in your own DatasetReader. It should generate instances
-       that look like {"tokens": TextField(...), "label": LabelField(...)}.
-       You don't need to add the "[CLS]" or "[SEP]" tokens to your instances,
-       that's handled automatically by the token indexer.
-    3. replace train_data_path and validation_data_path with real paths
-    4. any other parameters you want to change (e.g. dropout)
- */
 
+local debug=true;
+local lr=1e-5;
+local dropout=0.2;
+local num_of_batch_per_train_epo=200;
 local global_root = '/datadrive/GETSum';
-//local global_root='/scratch/cluster/jcxu/GETSum';
 
 local root =global_root+'/bert_data';
-local cuda_device = 2;
+local cuda_device = -1;
 local bert_trainable=true;
 local optimizer="bert_adam";
-local lr=1e-5;
-local warmup=0.1;
-//local lr=2e-5;
-local train_data_path =root+'/train/';
 
+local warmup=0.1;
+local iden = {type:"identity"};
+local gcn ={type:"gcn", input_dims:[768], num_layers:1,hidden_dims:[768]};
+local lstm={type:"seq2seq",
+    "seq2seq_encoder":{
+     "type":"lstm",
+     "input_size":768,
+     "hidden_size":384,
+     "batch_first":true,
+     "bidirectional":true
+     }};
+local multi_head_self_attention={
+    type:"seq2seq",
+    "seq2seq_encoder":{
+    type:"multi_head_self_attention",
+    num_heads:4,
+    input_dim:768,
+    attention_dim:128,
+    values_dim:128,
+    output_projection_dim:768
+}};
+local agg_func=gcn;
+
+
+local train_data_path =root+'/train/';
 local valid_data_path =root+'/test/';
 local test_data_path =root+'/test/';
 
 local bert_config=global_root+'/configs/BertSumConfig.json';
 
-local BATCH_SIZE=12;
+local BATCH_SIZE=13;
 //local ser_dir=root+'/tmp/';
 ####
 //local train_data_path = test_data_path;
@@ -38,7 +52,7 @@ local base_iterator={
 //    track_epoch: true,
 //    "sorting_keys": [["doc_text", "num_tokens"]],
     batch_size: BATCH_SIZE,
-    instances_per_epoch:1000*BATCH_SIZE,
+    instances_per_epoch:num_of_batch_per_train_epo*BATCH_SIZE,
      max_instances_in_memory: BATCH_SIZE * 30,
   };
 
@@ -57,10 +71,8 @@ local bert_vocab = global_root+"/bert_vocab";
     "dataset_reader": {
         "lazy": true,
         "type": "cnndm",
+        "debug":debug,
         "bert_model_name": "bert-base-uncased",
-//        "tokenizer": {
-//            "word_splitter": "bert-basic"
-//        },
         "token_indexers": {
             "bert": {
                 "type": "bert-pretrained",
@@ -82,8 +94,8 @@ local bert_vocab = global_root+"/bert_vocab";
         "bert_model": bert_model,
         "bert_config_file":bert_config,
         "trainable":bert_trainable,
-        "dropout": 0.1,
-        "graph_encoder":{type:"gcn", input_dims:[768,768], num_layers:2,hidden_dims:[768,768]}
+        "dropout":dropout,
+        "graph_encoder":agg_func
     },
      "iterator":base_iterator,
 //     {type: 'multiprocess',
@@ -97,10 +109,21 @@ local bert_vocab = global_root+"/bert_vocab";
     num_workers: 1,
     output_queue_size: 130},
     "trainer": {
-        "optimizer": {
-            "type":optimizer,
+//        "optimizer": {
+//            "type":optimizer,
+//            "lr": lr,
+//            "warmup":warmup,
+//        },
+         "optimizer": {
+            "type": optimizer,
             "lr": lr,
             "warmup":warmup,
+            "t_total": 8000,
+            "max_grad_norm": 1.0,
+            "weight_decay": 0.01,
+            "parameter_groups": [
+              [["bias", "LayerNorm.bias", "LayerNorm.weight", "layer_norm.weight"], {"weight_decay": 0.0}],
+            ],
         },
         "summary_interval":1000,
         "keep_serialized_model_every_num_seconds":30*60,
@@ -113,9 +136,13 @@ local bert_vocab = global_root+"/bert_vocab";
         "grad_clipping":5,
 //        "learning_rate_scheduler":{
 //        "type":"noam",
-//        "type":"noam",
 //        'model_size':768,
 //        "warmup_steps":8000
+//        },
+//    "learning_rate_scheduler": {
+//            "type": "slanted_triangular",
+//            "num_epochs": 15,
+//            "num_steps_per_epoch": 8829,
 //        },
         "should_log_learning_rate":true,
     }

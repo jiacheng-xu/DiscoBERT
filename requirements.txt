@@ -5,3 +5,4 @@ dgl
 tensorflow_gpu
 spacy
 numpy
+multiprocess

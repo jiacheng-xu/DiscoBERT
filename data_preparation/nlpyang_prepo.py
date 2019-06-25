@@ -5,7 +5,7 @@ import argparse
 import time
 # from data_preparation.nlpyang_others_logging import init_logger
 # from data_preparation.nlpyang_data_builder import *
-from  nlpyang_others_logging import init_logger
+from nlpyang_others_logging import init_logger
 from nlpyang_data_builder import *
 
 
@@ -63,4 +63,5 @@ if __name__ == '__main__':
     init_logger(args.log_file)
     if args.mode == 'format_to_lines':
         do_format_to_lines(args)
+    # elif args.mode =='format_to_lines'
     # eval('data_builder.'+args.mode + '(args)')

@@ -21,9 +21,12 @@ git clone https://github.com/PKU-TANGENT/NeuralEDUSeg.git
 wget http://nlp.stanford.edu/software/stanford-corenlp-full-2018-10-05.zip
 unzip stanford-corenlp-full-2018-10-05.zip
 
+export CLASSPATH=/home/cc/stanford-corenlp-full-2018-10-05/stanford-corenlp-3.9.2.jar
 export CLASSPATH=/datadrive/stanford-corenlp-full-2018-10-05/stanford-corenlp-3.9.2.jar
 conda install cudatoolkit
 conda install cudnn
+
+sudo apt-get install default-jdk
 
 cd /home/intern
 git clone https://github.com/jiacheng-xu/pythonrouge.git

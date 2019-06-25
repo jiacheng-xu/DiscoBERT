@@ -35,7 +35,7 @@ def reduce(nodes):
     accum = torch.mean(nodes.mailbox['m'], 1)
     return {'h': accum}
 
-
+from allennlp.modules.masked_layer_norm import MaskedLayerNorm
 class NodeApplyModule(nn.Module):
     """Update the node feature hv with ReLU(Whv+b)."""
 
@@ -43,13 +43,15 @@ class NodeApplyModule(nn.Module):
         super(NodeApplyModule, self).__init__()
         self.linear = nn.Linear(in_feats, out_feats)
         self.activation = activation
+        torch.nn.init.xavier_uniform(self.linear.weight)
+        self.linear.bias.data.fill_(0.01)
 
     def forward(self, node):
         h = self.linear(node.data['h'])
         h = self.activation(h)
         return {'h': h}
 
-
+from allennlp.modules.layer_norm import LayerNorm
 class GCN(nn.Module):
     def __init__(self, in_feats, out_feats, activation):
         super(GCN, self).__init__()
