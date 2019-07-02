@@ -1,4 +1,3 @@
-import gc
 import glob
 import hashlib
 import itertools
@@ -6,18 +5,14 @@ import json
 import os
 import re
 import subprocess
-import time
+from multiprocessing.pool import Pool
 from os.path import join as pjoin
 
+import gc
 import torch
-from multiprocess import Pool
-from multiprocessing import pool
 from pytorch_pretrained_bert import BertTokenizer
 
-# from nlpyang_others_logging import logger
-# from nlpyang_others_utils import clean
-# from nlpyang_utils import _get_word_ngrams
-
+from data_preparation.my_format_to_bert import MS_formate_to_bert
 from data_preparation.nlpyang_others_logging import logger
 from data_preparation.nlpyang_others_utils import clean
 from data_preparation.nlpyang_utils import _get_word_ngrams
@@ -45,31 +40,39 @@ bf3dd673d72edf70f431bb3a638a3cc124a3c3ae.story.doc.brackets
 """
 
 
-def read_merge(file):
+def read_discourse_merge(file):
+    """
+    Return a list of list of tuples
+    [ sent_i [ tuples (start, end (inclusive)
+    :param file:
+    :return:
+    """
+    # file = '/datadrive/data/cnn/segs/01a4c31112f1ceeeebbe8dce862f14f6792c03a3.story.doc.merge'
     with open(file, 'r') as fd:
         lines = fd.read().splitlines()
     # simply treat EDU as sentence
-    source = []
-    tmp = []
-    tmp_edu_id = 1
     lines = [l for l in lines if len(l) > 0]
+
+    edu_dict = OrderedDict()
+
+    last_line = lines[-1].split("\t")
+    total_sent_num = int(last_line[0]) + 1
+    sent_with_edu_spans = [[] for _ in range(total_sent_num)]
     for l in lines:
         items = l.split("\t")
-
-        word = items[2].lower()
-        edu_id = int(items[-1])
+        edu_id = str(items[-1])
         sent_id = int(items[0])
-        if edu_id == tmp_edu_id:
-            tmp.append(word)
-        else:
-            source.append(" ".join(tmp))
-            tmp = []
-            tmp.append(word)
-            tmp_edu_id = edu_id
-    if tmp != []:
-        source.append(" ".join(tmp))
+        word_index_in_sent = int(items[1]) - 1  # WARN this is indexed from 1 rather than 0 !!!!
 
-    return [clean(sent).split(" ") for sent in source]
+        if edu_id in edu_dict:
+            _t = edu_dict[edu_id]
+            _t[2] = word_index_in_sent
+        else:
+            edu_dict[edu_id] = [sent_id, word_index_in_sent, word_index_in_sent]
+    for k, v in edu_dict.items():
+        sent_id, start_idx, end_idx = v
+        sent_with_edu_spans[sent_id].append((start_idx, end_idx))
+    return sent_with_edu_spans
 
 
 from collections import OrderedDict
@@ -170,15 +173,18 @@ def load_sum(fname, path):
         lines = fd.read().splitlines()
 
     lines = [nltk.word_tokenize(l) for l in lines if len(l) > 1]
-    return lines
+    lower_lines = []
+    for l in lines:
+        lower_lines.append([x.lower() for x in l])
+    return lower_lines
 
 
 def load_merge_bracket(fname, path):
-    merge_file = fname + '.story.doc.merge'
+    merge_file = fname + '.story.doc.conll.merge'
     brack_file = fname + '.story.doc.brackets'
-    source = read_merge(os.path.join(path, merge_file))
-    tree_dep = read_bracket(os.path.join(path, brack_file))
-    return source
+    disco_seg = read_discourse_merge(os.path.join(path, merge_file))
+    # tree_dep = read_bracket(os.path.join(path, brack_file))
+    return disco_seg
 
 
 def load_json(p, lower):
@@ -205,67 +211,10 @@ def load_json(p, lower):
 
 
 import multiprocessing
-import multiprocess
 
 
 def load_json_EDU_coref():
     pass
-
-
-def cal_rouge(evaluated_ngrams, reference_ngrams):
-    reference_count = len(reference_ngrams)
-    evaluated_count = len(evaluated_ngrams)
-
-    overlapping_ngrams = evaluated_ngrams.intersection(reference_ngrams)
-    overlapping_count = len(overlapping_ngrams)
-
-    if evaluated_count == 0:
-        precision = 0.0
-    else:
-        precision = overlapping_count / evaluated_count
-
-    if reference_count == 0:
-        recall = 0.0
-    else:
-        recall = overlapping_count / reference_count
-
-    f1_score = 2.0 * ((precision * recall) / (precision + recall + 1e-8))
-    return {"f": f1_score, "p": precision, "r": recall}
-
-
-def combination_selection(doc_sent_list, abstract_sent_list, summary_size):
-    def _rouge_clean(s):
-        return re.sub(r'[^a-zA-Z0-9 ]', '', s)
-
-    max_rouge = 0.0
-    max_idx = (0, 0)
-    abstract = sum(abstract_sent_list, [])
-    abstract = _rouge_clean(' '.join(abstract)).split()
-    sents = [_rouge_clean(' '.join(s)).split() for s in doc_sent_list]
-    evaluated_1grams = [_get_word_ngrams(1, [sent]) for sent in sents]
-    reference_1grams = _get_word_ngrams(1, [abstract])
-    evaluated_2grams = [_get_word_ngrams(2, [sent]) for sent in sents]
-    reference_2grams = _get_word_ngrams(2, [abstract])
-
-    impossible_sents = []
-    for s in range(summary_size + 1):
-        combinations = itertools.combinations([i for i in range(len(sents)) if i not in impossible_sents], s + 1)
-        for c in combinations:
-            candidates_1 = [evaluated_1grams[idx] for idx in c]
-            candidates_1 = set.union(*map(set, candidates_1))
-            candidates_2 = [evaluated_2grams[idx] for idx in c]
-            candidates_2 = set.union(*map(set, candidates_2))
-            rouge_1 = cal_rouge(candidates_1, reference_1grams)['f']
-            rouge_2 = cal_rouge(candidates_2, reference_2grams)['f']
-
-            rouge_score = rouge_1 + rouge_2
-            if (s == 0 and rouge_score == 0):
-                impossible_sents.append(c[0])
-            if rouge_score > max_rouge:
-                max_idx = c
-                max_rouge = rouge_score
-    return sorted(list(max_idx))
-
 
 def greedy_selection(doc_sent_list, abstract_sent_list, summary_size):
     def _rouge_clean(s):
@@ -388,13 +337,13 @@ def format_to_bert(chunk_path, oracle_mode, oracle_sent_num, min_src_ntokens=5, 
                  )
             )
         print(a_lst)
-        cnt = multiprocessing.cpu_count()
-        pool = Pool(cnt)
-        for d in pool.imap(_format_to_bert, a_lst):
+        # MS_formate_to_bert(a_lst[0])
+        _p = Pool(multiprocessing.cpu_count())
+        for d in _p.imap(MS_formate_to_bert, a_lst):
             pass
 
-        pool.close()
-        pool.join()
+        _p.close()
+        _p.join()
 
 
 def tokenize(raw_path, save_path, snlp='/datadrive/stanford-corenlp-full-2018-10-05'):
@@ -416,7 +365,14 @@ def tokenize(raw_path, save_path, snlp='/datadrive/stanford-corenlp-full-2018-10
     #     snlp = '/datadrive/stanford-corenlp-full-2018-10-05'
     print("Preparing to tokenize %s to %s..." % (stories_dir, tokenized_stories_dir))
     stories = os.listdir(stories_dir)
-    print("Stories like: {}".format(stories[12]))
+    # 000ce9139d5bf974c2a621226b6ed77900bfa498.story.doc
+
+    tokenized_stories = os.listdir(tokenized_stories_dir)  # 0016b5687760b3da5dd328e9b77ddd2522724a5a.story.doc.xml
+    exist_files = [".".join(f.split(".")[:-1]) for f in tokenized_stories if f.endswith('.xml')]
+    print("{} out of {} files processed".format(len(exist_files), len(stories)))
+    todo_files = list(set(stories) - set(exist_files))
+    stories = todo_files
+    print("Stories like: {}".format(stories[0]))
     # make IO list file
     print("Making list of files to tokenize...")
     with open("mapping_for_corenlp.txt", "w") as f:
@@ -463,6 +419,9 @@ def _format_to_bert(params):
             oracle_ids = greedy_selection(source, tgt, oracle_sent_num)
         elif (oracle_mode == 'combination'):
             oracle_ids = combination_selection(source, tgt, oracle_sent_num)
+        elif (oracle_mode == 'beam'):
+            oracle_ids = beam_selection(source, tgt, oracle_sent_num)
+
         else:
             raise NotImplementedError
         b_data = bert.preprocess(source, tgt, oracle_ids)
@@ -508,12 +467,12 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
         a_lst = [(f, seg_path, tok_path, summary_path) for f in corpora[corpus_type]]
 
         # unparel test
-        format_processed_data(a_lst[0])
+        # format_processed_data(a_lst[0])
 
-        pool = Pool(multiprocessing.cpu_count())
+        run_pool = Pool(multiprocessing.cpu_count())
         dataset = []
         p_ct = 0
-        for d in pool.imap_unordered(format_processed_data, a_lst):
+        for d in run_pool.imap_unordered(format_processed_data, a_lst):
             dataset.append(d)
             if (len(dataset) > shard_size):
                 pt_file = "{:s}.{:s}.{:d}.json".format(data_name, corpus_type, p_ct)
@@ -523,8 +482,8 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
                     p_ct += 1
                     dataset = []
 
-        pool.close()
-        pool.join()
+        run_pool.close()
+        run_pool.join()
         if (len(dataset) > 0):
             pt_file = "{:s}.{:s}.{:d}.json".format(data_name, corpus_type, p_ct)
             with open(os.path.join(save_path, pt_file), 'w') as save:
@@ -533,7 +492,6 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
                 dataset = []
 
 
-import xml.etree.ElementTree as ET
 from lxml import etree
 
 
@@ -545,7 +503,7 @@ def load_snlp(f, tok_path):
     tree = etree.parse(full_file_name)
     root = tree.getroot()
 
-    doc_id = root.findall("./document/docId")[0]
+    doc_id = root.findall("./document/docId")[0].text
     corefrences = root.findall("./document/coreference")[0]
     sentences = root.findall("./document/sentences")[0]
     return_sentences_obj = []
@@ -604,19 +562,10 @@ def load_snlp(f, tok_path):
 def format_processed_data(param):
     f, seg_path, tok_path, summary_path = param
     snlp_dict = load_snlp(f, tok_path)  # 'doc_id' 'coref' 'sent'
-    source = load_merge_bracket(f, seg_path)
+    span = load_merge_bracket(f, seg_path)
     target = load_sum(f, summary_path)
-    return {'src': source, 'tgt': target,
+    return {'disco_span': span,
+            'tgt': target,
             'sent': snlp_dict['sent'],
             'doc_id': snlp_dict['doc_id'],
             'coref': snlp_dict['coref']}
-
-
-def _format_to_lines(f):
-    # print(f)
-    try:
-        source, tgt = load_json(f, True)
-    except:
-        print("problem {}".format(f))
-    # print("Pass")
-    return {'src': source, 'tgt': tgt}

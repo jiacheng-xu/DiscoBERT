@@ -2,14 +2,15 @@
 local debug=true;
 local lr=1e-5;
 local dropout=0.2;
-local num_of_batch_per_train_epo=200;
+local num_of_batch_per_train_epo=1000;
 local global_root = '/datadrive/GETSum';
 
-local root =global_root+'/bert_data';
-local cuda_device = -1;
+//local root =global_root+'/bert_data';
+local root = '/datadrive/data/cnn';
+local cuda_device = 3;
 local bert_trainable=true;
 local optimizer="bert_adam";
-
+local pred_len=6;
 local warmup=0.1;
 local iden = {type:"identity"};
 local gcn ={type:"gcn", input_dims:[768], num_layers:1,hidden_dims:[768]};
@@ -21,6 +22,18 @@ local lstm={type:"seq2seq",
      "batch_first":true,
      "bidirectional":true
      }};
+local stacked_self_attention={
+     type:"seq2seq",
+     seq2seq_encoder:{
+     type:"stacked_self_attention",
+        input_dim:768,
+        hidden_dim:768,
+        projection_dim:768,
+        feedforward_hidden_dim:768,
+        num_layers:2,
+        num_attention_heads:4
+     }
+};
 local multi_head_self_attention={
     type:"seq2seq",
     "seq2seq_encoder":{
@@ -31,7 +44,14 @@ local multi_head_self_attention={
     values_dim:128,
     output_projection_dim:768
 }};
-local agg_func=gcn;
+
+local SelfAttnSpan={
+    type:'self_attentive',
+    input_dim:768
+
+};
+
+local agg_func=iden;
 
 
 local train_data_path =root+'/train/';
@@ -95,7 +115,11 @@ local bert_vocab = global_root+"/bert_vocab";
         "bert_config_file":bert_config,
         "trainable":bert_trainable,
         "dropout":dropout,
-        "graph_encoder":agg_func
+        "graph_encoder":agg_func,
+        "pred_length":pred_len,
+        "use_disco":true,
+        "use_coref":false,
+        "span_extractor":SelfAttnSpan
     },
      "iterator":base_iterator,
 //     {type: 'multiprocess',

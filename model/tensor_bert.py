@@ -150,6 +150,7 @@ class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
 
 from allennlp.modules.layer_norm import LayerNorm
 from allennlp.modules.masked_layer_norm import MaskedLayerNorm
+from allennlp.modules.span_extractors.span_extractor import SpanExtractor
 
 
 @Model.register("tensor_bert")
@@ -158,11 +159,14 @@ class TensorBertSum(Model):
                  bert_model: Union[str, BertModel],
                  bert_config_file: str,
                  graph_encoder: GraphEncoder,
+                 span_extractor: SpanExtractor,
                  trainable: bool = True,
+                 use_disco: bool = True,
+                 use_coref: bool = False,
                  index: str = "bert",
                  dropout: float = 0.2,
                  tmp_dir: str = '/datadrive/tmp/',
-
+                 pred_length: int = 5,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         # super(TensorBertSum, self).__init__(vocab, regularizer)
@@ -179,6 +183,7 @@ class TensorBertSum(Model):
             param.requires_grad = trainable
 
         in_features = self.bert_model.config.hidden_size
+        self._pred_length = pred_length
         self._index = index
         self._dropout = torch.nn.Dropout(p=dropout)
         self._classification_layer = torch.nn.Linear(in_features, 1)
@@ -191,6 +196,10 @@ class TensorBertSum(Model):
         # self.bert_model.requires_grad = False
         initializer(self._classification_layer)
         # xavier_uniform_(self._classification_layer._parameters())
+        self._use_disco = use_disco
+        if self._use_disco:
+            self._span_extractor = span_extractor
+        self._use_coref = use_coref
 
     def transform_sent_rep(self, sent_rep, sent_mask):
         init_graphs = self._graph_encoder.convert_sent_tensors_to_graphs(sent_rep, sent_mask)
@@ -207,14 +216,10 @@ class TensorBertSum(Model):
                 labels,
                 segs,
                 clss,
-                meta_field
-                # tokens: Dict[str, torch.LongTensor]
+                meta_field,
+                disco_label,
+                disco_span
                 ):
-        # for m in meta_field:
-        #     print(m)
-        # print(clss[1])
-        # print(labels[1])
-        # print(tokens['bert'][1].tolist())
         if detect_nan(tokens['bert']) or detect_nan(labels) or detect_nan(segs) or detect_nan(clss):
             print("NAN")
             exit()
@@ -229,7 +234,11 @@ class TensorBertSum(Model):
             # print("raodmark2")
             top_vec = encoded_layers[-1]
             # top_vec = self._dropout(top_vec)
-            sent_rep, sent_mask = efficient_head_selection(top_vec, clss)
+            if self._use_disco:
+                attended_text_embeddings = self._span_extractor.forward(top_vec, disco_span,input_mask)
+                pass
+            else:
+                sent_rep, sent_mask = efficient_head_selection(top_vec, clss)
             # sent_rep: batch size, sent num, bert hid dim
             # sent_mask: batch size, sent num
 
@@ -321,7 +330,7 @@ class TensorBertSum(Model):
                     logger.warning("Index Error\n{}".format(this_meta['src_txt']))
                     # print("Index Error\n{}\n{}".format(this_meta['src_txt'], sel_indexs))
                     continue
-                if len(predictions) >= 3:
+                if len(predictions) >= self._pred_length:
                     break
             # if random.random() < 0.001:
             #     print("\n".join(predictions))
@@ -365,11 +374,10 @@ if __name__ == '__main__':
 
     jsonnet_file = os.path.join(root, 'configs/baseline_bert.jsonnet')
     params = Params.from_file(jsonnet_file)
-
+    print(params.params)
     serialization_dir = tempfile.mkdtemp(prefix=os.path.join(root, 'tmp_exps'))
     model = train_model(params, serialization_dir)
     # serialization_dir = '/backup3/jcxu/NeuSegSum/tmp_expsn7oe84zt'
     # print(serialization_dir)
     # params = Params.from_file(jsonnet_file)
-    print(params)
     print(serialization_dir)

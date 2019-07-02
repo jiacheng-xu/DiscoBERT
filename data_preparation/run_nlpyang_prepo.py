@@ -15,13 +15,13 @@ def dplp_interface(dplp_dir, xml_path, seg_path):
     print("Calling {}".format(command_convert))
     subprocess.call(command_convert, shell=True)
 
-    command_seg = "python2 {}/segmenter.py {} {}".format(dplp_dir, xml_path, seg_path)
-    print("Calling {}".format(command_seg))
-    subprocess.call(command_seg, shell=True)
-
-    command_rst = "python2 {}/rstparser.py {} False".format(dplp_dir, seg_path)
-    print("Calling {}".format(command_rst))
-    subprocess.call(command_rst, shell=True)
+    # command_seg = "python2 {}/segmenter.py {} {}".format(dplp_dir, xml_path, seg_path)
+    # print("Calling {}".format(command_seg))
+    # subprocess.call(command_seg, shell=True)
+    #
+    # command_rst = "python2 {}/rstparser.py {} False".format(dplp_dir, seg_path)
+    # print("Calling {}".format(command_rst))
+    # subprocess.call(command_rst, shell=True)
     # python2 convert.py /datadrive/data/cnn/tokenized
     # python2 segmenter.py /datadrive/data/cnn/tokenized /datadrive/data/cnn/segs
     # python2 rstparser.py /datadrive/data/cnn/segs False
@@ -68,7 +68,10 @@ if __name__ == '__main__':
     # from data_preparation.nlpyang_prepo import tokenize
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-mode", default='format_to_lines', type=str,
+    parser.add_argument("-mode",
+                        default='format_to_bert',
+                        # default='format_to_lines',
+                        type=str,
                         help='tokenize or format_to_lines or format_to_bert')
     parser.add_argument("-oracle_mode",
                         default='greedy',
@@ -90,7 +93,7 @@ if __name__ == '__main__':
     parser.add_argument('-max_nsents', default=100, type=int)
     parser.add_argument('-min_src_ntokens', default=5, type=int)
     parser.add_argument('-max_src_ntokens', default=200, type=int)
-
+    parser.add_argument('-oracle_sent_num', default=10, type=int)
     # parser.add_argument("-lower", type=str2bool, nargs='?', const=True, default=True)
 
     parser.add_argument('-log_file', default='../../logs/cnndm.log')
@@ -135,7 +138,8 @@ if __name__ == '__main__':
         if not os.path.exists(save_path):
             os.mkdir(save_path)
         summary_path = os.path.join(args.data_dir, args.rel_split_sum_path)
-        format_to_lines(map_urls_path=args.map_path, seg_path=seg_path, tok_path=tokenized_doc,shard_size=args.shard_size,
+        format_to_lines(map_urls_path=args.map_path, seg_path=seg_path, tok_path=tokenized_doc,
+                        shard_size=args.shard_size,
                         save_path=save_path, summary_path=summary_path, data_name=args.data_name)
     elif args.mode == 'format_to_bert':
         from data_preparation.nlpyang_data_builder import format_to_bert
@@ -147,6 +151,6 @@ if __name__ == '__main__':
         start_time = time.time()
         format_to_bert(save_path,
                        oracle_mode=args.oracle_mode,
-                       oracle_sent_num=6)
+                       oracle_sent_num=args.oracle_sent_num)
         duration = time.time() - start_time
         print("Mode {}\tDuration {}".format(args.oracle_mode, duration))

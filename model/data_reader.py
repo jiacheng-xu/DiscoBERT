@@ -80,8 +80,8 @@ from pytorch_pretrained_bert.tokenization import BertTokenizer
 @DatasetReader.register("cnndm")
 class CNNDMDatasetReader(DatasetReader):
     def __init__(self,
-                 lazy: bool,
-                 bert_model_name: str,
+                 lazy: bool = True,
+                 bert_model_name: str = 'bert-base-uncased',
                  token_indexers: Dict[str, TokenIndexer] = PretrainedBertIndexer("bert-base-uncased"),
                  debug: bool = False,
                  ) -> None:
@@ -97,6 +97,7 @@ class CNNDMDatasetReader(DatasetReader):
 
     def _read(self, file_path):
         files = os.listdir(file_path)
+        files = [f for f in files if f.endswith("pt")]
 
         partition_name = identify_partition_name(file_path)
         if partition_name == 'test' and self._debug:
@@ -120,6 +121,9 @@ class CNNDMDatasetReader(DatasetReader):
                                             d['clss'],
                                             d['src_txt'],
                                             d['tgt_txt'],
+                                            d['d_labels'],
+                                            d['d_span'],
+                                            d['d_coref'],
                                             identify_partition_name(f)
                                             )
                 # cnt += 1
@@ -134,6 +138,9 @@ class CNNDMDatasetReader(DatasetReader):
                          clss: List[int],
                          src_txt: List[str],
                          tgt_txt: str,
+                         disco_label,
+                         disco_span,
+                         disco_coref,
                          type: str
                          ):
 
@@ -156,6 +163,10 @@ class CNNDMDatasetReader(DatasetReader):
         labels = ArrayField(np.asarray(labels), padding_value=-1, dtype=np.int)
         segs = ArrayField(np.asarray(segs), padding_value=0, dtype=np.int)  # TODO -1 or 0?
         clss = ArrayField(np.asarray(clss), padding_value=-1, dtype=np.int)
+
+        disco_label = ArrayField(np.asarray(disco_label), padding_value=-1, dtype=np.int)
+        disco_span = ArrayField(np.asarray(disco_span), padding_value=-1, dtype=np.int)
+        # TODO disco_coref
         meta_field = MetadataField({
             "source": 'cnndm',
             "type": type,
@@ -166,12 +177,15 @@ class CNNDMDatasetReader(DatasetReader):
                   "labels": labels,
                   "segs": segs,
                   "clss": clss,
-                  "meta_field": meta_field
+                  "meta_field": meta_field,
+                  "disco_label": disco_label,
+                  "disco_span": disco_span
                   }
         return Instance(fields)
 
-# if __name__ == '__main__':
-#     dataset_reader = CNNDMDatasetReader()
-#     x = dataset_reader._read()
-#     for i in x:
-#         print(i)
+
+if __name__ == '__main__':
+    dataset_reader = CNNDMDatasetReader()
+    x = dataset_reader._read("/datadrive/data/cnn/chunk")
+    for i in x:
+        print(i)
