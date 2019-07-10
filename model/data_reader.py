@@ -14,7 +14,9 @@ from allennlp.data.tokenizers import WordTokenizer
 from allennlp.data.tokenizers.word_splitter import BertBasicWordSplitter
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.modules.token_embedders.bert_token_embedder import BertEmbedder
-
+import sys
+import numpy
+numpy.set_printoptions(threshold=sys.maxsize)
 import string
 from allennlp.common.util import START_SYMBOL, END_SYMBOL
 import logging
@@ -23,6 +25,7 @@ import os, torch, pickle
 from typing import Dict, Optional, List, Any
 
 from overrides import overrides
+import dgl
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 import numpy as np
@@ -95,40 +98,115 @@ class CNNDMDatasetReader(DatasetReader):
         self.bert_lut = list(self._token_indexers['bert'].vocab.items())
         self.bert_lut = [x[0] for x in self.bert_lut]
 
+        self.train_pts = []
+        random.seed(112312)
+
+    def refill_data(self, fpath):
+        partition_name = identify_partition_name(fpath)
+        if hasattr(self, partition_name):
+            if getattr(self, partition_name) == []:
+                print("start a new round of loading training data")
+                files = os.listdir(fpath)
+                files = [f for f in files if f.endswith("pt")]
+                random.shuffle(files)
+                setattr(self, partition_name, files)
+        else:
+            print("start a new round of loading training data")
+            files = os.listdir(fpath)
+            files = [f for f in files if f.endswith("pt")]
+            random.shuffle(files)
+            setattr(self, partition_name, files)
+
+    def yield_data(self, part_name, fpath):
+        while True:
+            self.refill_data(fpath)
+            yield getattr(self, part_name).pop()
+
     def _read(self, file_path):
-        files = os.listdir(file_path)
-        files = [f for f in files if f.endswith("pt")]
+
+        # see and refill data files
 
         partition_name = identify_partition_name(file_path)
-        if partition_name == 'test' and self._debug:
-            logger.warning("debug mode only loads part of test set!")
-            files = files[:2]
-        random.seed(112312)
-        random.shuffle(files)
-        cnt = 0
-        for f in files:
-            dataset = torch.load(os.path.join(file_path, f))
-            print('Loading dataset from %s, number of examples: %d' %
-                  (f, len(dataset)))
-            logger.info('Loading dataset from %s, number of examples: %d' %
-                        (f, len(dataset)))
-            for d in dataset:
-                # print("yielding from {}".format(f))
-                # print(d)
-                yield self.text_to_instance(d['src'],
-                                            d['labels'],
-                                            d['segs'],
-                                            d['clss'],
-                                            d['src_txt'],
-                                            d['tgt_txt'],
-                                            d['d_labels'],
-                                            d['d_span'],
-                                            d['d_coref'],
-                                            identify_partition_name(f)
-                                            )
-                # cnt += 1
-                # if cnt > 2000:
-                #     return
+
+        if partition_name == 'train':
+            for f in self.yield_data(partition_name, file_path):
+                dataset = torch.load(os.path.join(file_path, f))
+                print('Loading dataset from %s, number of examples: %d' %
+                      (f, len(dataset)))
+                logger.info('Loading dataset from %s, number of examples: %d' %
+                            (f, len(dataset)))
+                for d in dataset:
+                    yield self.text_to_instance(d['src'],
+                                                d['labels'],
+                                                d['segs'],
+                                                d['clss'],
+                                                d['sent_txt'],
+                                                d['disco_txt'],
+                                                d['tgt_txt'],
+                                                d['d_labels'],
+                                                d['d_span'],
+                                                d['d_coref'],
+                                                d['d_graph'],
+                                                identify_partition_name(f)
+                                                )
+        else:
+            files = os.listdir(file_path)
+            files = [f for f in files if f.endswith("pt")]
+            if self._debug:
+                logger.warning("debug mode only loads part of test set!")
+                files = files[:1]
+            for f in files:
+                dataset = torch.load(os.path.join(file_path, f))
+                print('Loading dataset from %s, number of examples: %d' %
+                      (f, len(dataset)))
+                logger.info('Loading dataset from %s, number of examples: %d' %
+                            (f, len(dataset)))
+                for d in dataset:
+                    # print("yielding from {}".format(f))
+                    # print(d)
+                    yield self.text_to_instance(d['src'],
+                                                d['labels'],
+                                                d['segs'],
+                                                d['clss'],
+                                                d['sent_txt'],
+                                                d['disco_txt'],
+                                                d['tgt_txt'],
+                                                d['d_labels'],
+                                                d['d_span'],
+                                                d['d_coref'],
+                                                d['d_graph'],
+                                                identify_partition_name(f)
+                                                )
+
+        #
+        # if partition_name == 'test' and self._debug:
+        #     logger.warning("debug mode only loads part of test set!")
+        #     files = files[:2]
+        #
+        # for f in files:
+        #     dataset = torch.load(os.path.join(file_path, f))
+        #     print('Loading dataset from %s, number of examples: %d' %
+        #           (f, len(dataset)))
+        #     logger.info('Loading dataset from %s, number of examples: %d' %
+        #                 (f, len(dataset)))
+        #     for d in dataset:
+        #         # print("yielding from {}".format(f))
+        #         # print(d)
+        #         yield self.text_to_instance(d['src'],
+        #                                     d['labels'],
+        #                                     d['segs'],
+        #                                     d['clss'],
+        #                                     d['sent_txt'],
+        #                                     d['disco_txt'],
+        #                                     d['tgt_txt'],
+        #                                     d['d_labels'],
+        #                                     d['d_span'],
+        #                                     d['d_coref'],
+        #                                     identify_partition_name(f)
+        #                                     )
+        # cnt += 1
+        # if cnt > 2000:
+        #     return
 
     @overrides
     def text_to_instance(self,
@@ -136,11 +214,13 @@ class CNNDMDatasetReader(DatasetReader):
                          labels: List[int],  # label, binary supervision, position wise
                          segs: List[int],  # segments binary
                          clss: List[int],
-                         src_txt: List[str],
+                         sent_txt: List[str],
+                         disco_txt: List[str],
                          tgt_txt: str,
                          disco_label,
                          disco_span,
                          disco_coref,
+                         disco_graph,
                          type: str
                          ):
 
@@ -151,6 +231,9 @@ class CNNDMDatasetReader(DatasetReader):
         assert len(segs) > 0
         assert len(labels) > 0
         assert len(clss) > 0
+
+        num_of_disco = len(disco_label)
+
         text_tokens = [Token(text=self.bert_lut[x], idx=x) for x in doc_text][1:-1]
         text_tokens = TextField(text_tokens, self._token_indexers
                                 )
@@ -166,12 +249,51 @@ class CNNDMDatasetReader(DatasetReader):
 
         disco_label = ArrayField(np.asarray(disco_label), padding_value=-1, dtype=np.int)
         disco_span = ArrayField(np.asarray(disco_span), padding_value=-1, dtype=np.int)
-        # TODO disco_coref
+
+        disco_coref = [x for x in disco_coref if x[0] != x[1]]
+        # DGL
+        ##########
+        # G = dgl.DGLGraph()
+        # G.add_nodes(num_of_disco)
+        #
+        # full_disco_coref = disco_coref + [(x[1], x[0]) for x in disco_coref]
+        # src, dst = tuple(zip(*full_disco_coref))
+        # G.add_edges(src, dst)
+        # G.add_edges(G.nodes(), G.nodes())
+        # print(G.edata)
+        ############
+
+        # handmade
+        empty = np.zeros((num_of_disco, num_of_disco), dtype=float)
+        #########
+        for cor in disco_coref:
+            x, y = cor
+            empty[x][y] += 1
+            empty[y][x] += 1
+        eye = np.eye(num_of_disco, dtype=float)
+        np_graph = eye + empty
+        coref_graph = ArrayField(np_graph, padding_value=0, dtype=np.float32)
+        #########
+
+        ########
+        # disco graph
+        dis_graph = np.zeros((num_of_disco, num_of_disco), dtype=float)
+        for rst in disco_graph:
+            rst_src, rst_tgt = rst[0], rst[1]
+            if rst_src < num_of_disco and rst_tgt < num_of_disco:
+                dis_graph[rst_src][rst_tgt] = 1
+        # if random.random() < 0.01:
+        #     print(dis_graph)
+        dis_graph = ArrayField(dis_graph, padding_value=0, dtype=np.float32)
+        ########
+
         meta_field = MetadataField({
             "source": 'cnndm',
             "type": type,
-            "src_txt": src_txt,
-            "tgt_txt": tgt_txt
+            "sent_txt": sent_txt,
+            "disco_txt": disco_txt,
+            "tgt_txt": tgt_txt,
+            # "coref_graph": coref_graph
         })
         fields = {"tokens": text_tokens,
                   "labels": labels,
@@ -179,7 +301,9 @@ class CNNDMDatasetReader(DatasetReader):
                   "clss": clss,
                   "meta_field": meta_field,
                   "disco_label": disco_label,
-                  "disco_span": disco_span
+                  "disco_span": disco_span,
+                  'disco_coref_graph': coref_graph,
+                  'disco_rst_graph': dis_graph
                   }
         return Instance(fields)
 

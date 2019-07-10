@@ -6,7 +6,12 @@ import os
 import shutil
 import tempfile
 import time
-
+import random
+import string
+def randomString(stringLength=10):
+    """Generate a random string of fixed length """
+    letters = string.ascii_lowercase
+    return ''.join(random.choice(letters) for i in range(stringLength))
 import pyrouge
 from overrides import overrides
 from allennlp.training.metrics.metric import Metric
@@ -71,10 +76,9 @@ class PyrougeEvaluation(Metric):
             all_metrics[self.name + '_A'] = 0
             return all_metrics
 
-        # print(len(self.pred_str_bag))
         logger = logging.getLogger()
         now = datetime.datetime.now()
-        stamp = "{}_{}_{}".format(now.day, now.hour, now.minute)
+        stamp = "{}_{}_{}_{}".format(now.day, now.hour, now.minute, randomString(10))
         with open(os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp)), 'w') as wfd:
             wfd.write("\n".join(self.pred_str_bag))
 

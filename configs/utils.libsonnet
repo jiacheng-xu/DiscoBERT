@@ -1,0 +1,48 @@
+{
+bert_trainable:true,
+optimizer:"bert_adam",
+lr:1e-5,
+warmup:0.1,
+iden : {type:"identity"},
+gcn:{type:"gcn", input_dims:[768], num_layers:1,hidden_dims:[768]},
+lstm:{type:"seq2seq",
+    "seq2seq_encoder":{
+     "type":"lstm",
+     "input_size":768,
+     "hidden_size":384,
+     "batch_first":true,
+     "bidirectional":true
+     }},
+stacked_self_attention:{
+     type:"seq2seq",
+     seq2seq_encoder:{
+     type:"stacked_self_attention",
+        input_dim:768,
+        hidden_dim:768,
+        projection_dim:768,
+        feedforward_hidden_dim:768,
+        num_layers:2,
+        num_attention_heads:4
+     }
+},
+easy_graph_encoder:{
+    type:'easy_graph_encoder',
+    input_dim:768,
+    num_layers:1,
+    hidden_dims:768
+},
+multi_head_self_attention:{
+    type:"seq2seq",
+    "seq2seq_encoder":{
+    type:"multi_head_self_attention",
+    num_heads:4,
+    input_dim:768,
+    attention_dim:128,
+    values_dim:128,
+    output_projection_dim:768
+}},
+SelfAttnSpan:{
+    type:'self_attentive',
+    input_dim:768
+}
+}

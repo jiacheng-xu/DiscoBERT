@@ -50,10 +50,28 @@ class MSBertData():
         # oracle labels
         docs = [disc.get_readable_words_as_list() for disc in disco_bag]
 
-        oracle_ids = greedy_selection(docs, summary, oracle_size)
+        # rewrite the docs to accomodate the dependency
+        modified_docs_w_deps = []
+        oracle_inclusion = []
+        for idx, disco in enumerate(disco_bag):
+            if disco.disco_dep >= 0 and (disco.disco_dep<len(docs)):
+                modified_docs_w_deps.append(
+                    docs[disco.disco_dep] + docs[idx]
+                )
+                oracle_inclusion.append([disco.disco_dep, idx])
+            else:
+                modified_docs_w_deps.append(
+                    docs[idx]
+                )
+                oracle_inclusion.append([idx])
+
+        oracle_ids = greedy_selection(modified_docs_w_deps, summary, oracle_size)
+
         labels = [0] * len(disco_bag)
         for l in oracle_ids:
-            labels[l] = 1
+            ora = oracle_inclusion[l]
+            for o in ora:
+                labels[o] = 1
 
         # coref biiiigggg matrix
         coref_lookup_dict = {}
@@ -75,12 +93,17 @@ class MSBertData():
             accumulated_length += len(disc.bert_word_pieces)
 
             for m in disc.mentions:
-                coref_lookup_dict[m] = idx
+                coref_lookup_dict[m] = idx  # coref_lookup_dict is a dictionary. key=original mention {sent}_{word}
+                # value=discourse piece index
         for idx, disc in enumerate(disco_bag):
             crf = disc.corefs
             for c in crf:
                 if c in coref_lookup_dict:
-                    coref_list.append((idx, coref_lookup_dict[c]))
+                    if idx != coref_lookup_dict[c]:  # self loop not needed
+                        coref_list.append((idx, coref_lookup_dict[c]))
+                else:
+                    # print()
+                    pass
         coref_set = set(coref_list)
         # labels[discourse level],
         # span indexs [ for discourse level]

@@ -1,6 +1,8 @@
 import logging, itertools, dgl, random, torch, tempfile
+import multiprocessing
 from typing import Dict, List, Optional, Union
 import numpy as np
+from allennlp.commands.fine_tune import fine_tune_model_from_file_paths
 from allennlp.commands.train import train_model
 from allennlp.common import Params
 from allennlp.data.vocabulary import Vocabulary
@@ -20,12 +22,19 @@ from allennlp.common import Registrable
 from model.data_reader import CNNDMDatasetReader
 # from model.pythonrouge_metrics import RougeStrEvaluation
 from model.pyrouge_metrics import PyrougeEvaluation
+from multiprocessing import Pool, TimeoutError
+import time
+import os
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 from pytorch_pretrained_bert import BertConfig
 
 from model.model_util import *
+
+
+def run_eval_worker(obj):
+    return obj.get_metric(True)
 
 
 class GraphEncoder(_EncoderBase, Registrable):
@@ -59,12 +68,57 @@ class S2S(GraphEncoder, torch.nn.Module, FromParams):
 class Identity(GraphEncoder, torch.nn.Module, FromParams):
     def __init__(self):
         super(Identity, self).__init__()
+        # self.ln = MaskedLayerNorm(size=768)
 
     def transform_sent_rep(self, sent_rep, sent_mask):
+        # return self.ln.forward(sent_rep, sent_mask)
         return sent_rep
 
 
 from allennlp.modules.feedforward import FeedForward
+
+
+@GraphEncoder.register("easy_graph_encoder")
+class EasyGraph(GraphEncoder, torch.nn.Module, FromParams):
+    def __init__(self,
+                 input_dim: int,
+                 num_layers: int,
+                 hidden_dims: Union[int, List[int]],
+                 dropout=0.1):
+        super().__init__()
+
+        if not isinstance(hidden_dims, list):
+            hidden_dims = [hidden_dims] * num_layers
+        if not isinstance(dropout, list):
+            dropout = [dropout] * num_layers  # type: ignore
+
+        self._activations = [torch.nn.functional.relu] * num_layers
+        input_dims = [input_dim] + hidden_dims[:-1]
+        linear_layers = []
+        for layer_input_dim, layer_output_dim in zip(input_dims, hidden_dims):
+            linear_layers.append(torch.nn.Linear(layer_input_dim, layer_output_dim))
+        self._linear_layers = torch.nn.ModuleList(linear_layers)
+        dropout_layers = [torch.nn.Dropout(p=value) for value in dropout]
+        self._dropout = torch.nn.ModuleList(dropout_layers)
+        self._output_dim = hidden_dims[-1]
+
+        self.lin = torch.nn.Linear(self._output_dim, self._output_dim)
+        self.ln = MaskedLayerNorm(size=hidden_dims[0])
+
+    def transform_sent_rep(self, sent_rep, sent_mask, graphs):
+        # LayerNorm(x + Sublayer(x))
+        output = sent_rep
+
+        for layer, activation, dropout in zip(self._linear_layers, self._activations, self._dropout):
+            mid = layer(output)  # output: batch, seq, feat
+            mid = mid.permute(0, 2, 1)  # mid: batch, feat, seq
+
+            nex = torch.bmm(mid, graphs)
+            output = dropout(activation(nex))
+            output = output.permute(0, 2, 1)  # mid: batch, seq, feat
+        middle = sent_rep + self.lin(output)
+        output = self.ln.forward(middle, sent_mask)
+        return output
 
 
 @GraphEncoder.register("gcn")
@@ -153,6 +207,17 @@ from allennlp.modules.masked_layer_norm import MaskedLayerNorm
 from allennlp.modules.span_extractors.span_extractor import SpanExtractor
 
 
+def easy_post_processing(inp: List):
+    if len(inp) < 2:
+        return inp
+
+    if inp[-1] in ',;-=':
+        inp.pop(-1)
+    if inp[0] in ',;-=':
+        inp.pop(0)
+    return inp
+
+
 @Model.register("tensor_bert")
 class TensorBertSum(Model):
     def __init__(self, vocab: Vocabulary,
@@ -162,11 +227,13 @@ class TensorBertSum(Model):
                  span_extractor: SpanExtractor,
                  trainable: bool = True,
                  use_disco: bool = True,
+                 use_disco_graph=True,
                  use_coref: bool = False,
                  index: str = "bert",
                  dropout: float = 0.2,
                  tmp_dir: str = '/datadrive/tmp/',
-                 pred_length: int = 5,
+                 min_pred_length: int = 6,
+                 max_pred_length: int = 9,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         # super(TensorBertSum, self).__init__(vocab, regularizer)
@@ -183,7 +250,8 @@ class TensorBertSum(Model):
             param.requires_grad = trainable
 
         in_features = self.bert_model.config.hidden_size
-        self._pred_length = pred_length
+        self._min_pred_len = min_pred_length
+        self._max_pred_len = max_pred_length
         self._index = index
         self._dropout = torch.nn.Dropout(p=dropout)
         self._classification_layer = torch.nn.Linear(in_features, 1)
@@ -191,14 +259,22 @@ class TensorBertSum(Model):
         # self._accuracy = CategoricalAccuracy()
         self._loss = torch.nn.BCELoss(reduction='none')
         self._layer_norm = MaskedLayerNorm(768)
-        self._rouge = PyrougeEvaluation(name='rouge', cand_path=tmp_dir, ref_path=tmp_dir, path_to_valid=tmp_dir)
+
+        # ROUGES
+        for i in range(min_pred_length, max_pred_length):
+            setattr(self, "rouge_{}".format(i),
+                    PyrougeEvaluation(name='rouge_{}'.format(i), cand_path=tmp_dir, ref_path=tmp_dir,
+                                      path_to_valid=tmp_dir))
+            # self._rouge = PyrougeEvaluation(name='rouge', cand_path=tmp_dir, ref_path=tmp_dir, path_to_valid=tmp_dir)
         self._sigmoid = nn.Sigmoid()
         # self.bert_model.requires_grad = False
         initializer(self._classification_layer)
         # xavier_uniform_(self._classification_layer._parameters())
+
         self._use_disco = use_disco
-        if self._use_disco:
-            self._span_extractor = span_extractor
+
+        self._use_disco_graph = use_disco_graph
+        self._span_extractor = span_extractor
         self._use_coref = use_coref
 
     def transform_sent_rep(self, sent_rep, sent_mask):
@@ -218,7 +294,9 @@ class TensorBertSum(Model):
                 clss,
                 meta_field,
                 disco_label,
-                disco_span
+                disco_span,
+                disco_coref_graph,
+                disco_rst_graph
                 ):
         if detect_nan(tokens['bert']) or detect_nan(labels) or detect_nan(segs) or detect_nan(clss):
             print("NAN")
@@ -234,19 +312,37 @@ class TensorBertSum(Model):
             # print("raodmark2")
             top_vec = encoded_layers[-1]
             # top_vec = self._dropout(top_vec)
+            label_to_use = None
             if self._use_disco:
-                attended_text_embeddings = self._span_extractor.forward(top_vec, disco_span,input_mask)
-                pass
+                # if self._use_disco:
+                disco_mask = (disco_span[:, :, 0] >= 0).long()
+                disco_span = torch.nn.functional.relu(disco_span.float()).long()
+                attended_text_embeddings = self._span_extractor.forward(top_vec, disco_span, input_mask, disco_mask)
+                encoder_output, encoder_output_msk = attended_text_embeddings, disco_mask
+                label_to_use = disco_label
+
             else:
                 sent_rep, sent_mask = efficient_head_selection(top_vec, clss)
-            # sent_rep: batch size, sent num, bert hid dim
-            # sent_mask: batch size, sent num
+
+                # sent_rep: batch size, sent num, bert hid dim
+                # sent_mask: batch size, sent num
+                encoder_output, encoder_output_msk = sent_rep, sent_mask
+                label_to_use = labels
 
             # sent_rep = self._layer_norm(sent_rep, sent_mask)
-            sent_rep = self._graph_encoder.transform_sent_rep(sent_rep, sent_mask)
+            if self._use_disco_graph:
+                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,
+                                                                                 disco_rst_graph)
+            elif self._use_coref:
+                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,
+                                                                                 disco_coref_graph)
+            else:
+                encoder_output_af_graph = encoder_output
             # sent_rep = self._layer_norm(sent_rep, sent_mask)
-            batch_size, sent_num = sent_mask.shape
-            scores = self._sigmoid(self._classification_layer(self._dropout(sent_rep)))
+
+            # batch_size, sent_num = sent_mask.shape
+
+            scores = self._sigmoid(self._classification_layer(self._dropout(encoder_output_af_graph)))
             scores = scores.squeeze(-1)
             # scores = scores + (sent_mask.float() - 1)
             # logits = self._transfrom_layer(logits)
@@ -254,10 +350,12 @@ class TensorBertSum(Model):
 
             output_dict = {"scores": scores,
                            # "probs": probs,
-                           'mask': sent_mask,
+                           "mask": encoder_output_msk,
+                           # 'mask': sent_mask,
+                           # 'disco_mask': disco_mask,
                            "meta": meta_field}
 
-            if labels is not None:
+            if label_to_use is not None:
                 # logits: batch size, sent num
                 # labels: batch size, sent num
                 # sent_mask: batch size, sent num
@@ -265,14 +363,14 @@ class TensorBertSum(Model):
                 # flatten_labels = labels.view(batch_size * sent_num).float()
                 # print(scores)
                 # print(labels)
-                labels = torch.nn.functional.relu(labels)
-                raw_loss = self._loss(scores, labels.float())
+                label_to_use = torch.nn.functional.relu(label_to_use)
+                raw_loss = self._loss(scores, label_to_use.float())
                 # print(loss.shape)
                 # print(sent_mask.shape)
                 # print(loss)
 
-                loss = raw_loss * sent_mask.float()
-                if random.random() < 0.01:
+                loss = raw_loss * encoder_output_msk.float()
+                if random.random() < 0.001:
                     print(loss.data[0])
                 loss = torch.sum(loss)
                 output_dict["loss"] = loss
@@ -309,43 +407,79 @@ class TensorBertSum(Model):
 
         for b in range(batch_size):
             this_meta = meta[b]
-            src = this_meta['src_txt']
+            if self._use_disco:
+                src = this_meta['disco_txt']
+            else:
+                src = this_meta['sent_txt']
             tgt = this_meta['tgt_txt']
             tgt_as_list = tgt.split('<q>')
             this_prob = tuned_probs[b]
             sel_indexs = np.argsort(-this_prob)
 
             trigrams = set()
+            # predictions = [[] for l in range(self._min_pred_len, self._max_pred_len)]
             predictions = []
-            predictions_idx = []
+            # predictions_idx = []
             for sel_i in sel_indexs:
                 try:
                     candidate = src[sel_i]
-                    cand_trigram = extract_n_grams(candidate)
+                    cand_trigram = extract_n_grams(" ".join(candidate))
                     if trigrams.isdisjoint(cand_trigram):
-                        predictions.append(candidate)
-                        predictions_idx.append(sel_i)
+                        predictions.append(" ".join(easy_post_processing(candidate)))
+                        # predictions_idx.append(sel_i)
                         trigrams.update(cand_trigram)
                 except IndexError:
-                    logger.warning("Index Error\n{}".format(this_meta['src_txt']))
+                    logger.warning("Index Error\n{}".format(src))
                     # print("Index Error\n{}\n{}".format(this_meta['src_txt'], sel_indexs))
                     continue
-                if len(predictions) >= self._pred_length:
+                if len(predictions) >= self._max_pred_len:
                     break
-            # if random.random() < 0.001:
+            # if random.random() < 0.01:
             #     print("\n".join(predictions))
-            #     print(predictions_idx)
+            #     print(tgt)
             # print(tgt_as_list)
-            self._rouge(pred="<q>".join(predictions), ref=tgt)
+            # print(predictions)
+            # print(tgt)
+            for l in range(self._min_pred_len, self._max_pred_len):
+                getattr(self, 'rouge_{}'.format(l))(pred="<q>".join(predictions[:l]), ref=tgt)
+            # self._rouge(pred="<q>".join(predictions), ref=tgt)
         return output_dict
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
-        dict_of_rouge = self._rouge.get_metric(reset)
+        # dict_of_rouge = self._rouge.get_metric(reset)
+        dict_of_rouge = {}
+        # print(reset)
+        if reset:
+            obj_list = [(getattr(self, 'rouge_{}'.format(l)),) for l in range(self._min_pred_len, self._max_pred_len)]
+            # print("start testing")
+            pool = multiprocessing.Pool(processes=10)
+            results = pool.starmap(run_eval_worker, obj_list)
+
+            for r in results:
+                dict_of_rouge = {**dict_of_rouge, **r}
+            # for i in pool.imap_unordered(f, range(10)):
+            # for l in range(self._min_pred_len, self._max_pred_len):
+            #     _d = getattr(self, 'rouge_{}'.format(l)).get_metric(reset)
+            #     dict_of_rouge = {**dict_of_rouge, **_d}
+        else:
+            for l in range(self._min_pred_len, self._max_pred_len):
+                _d = getattr(self, 'rouge_{}'.format(l)).get_metric(reset)
+                dict_of_rouge = {**dict_of_rouge, **_d}
+
+        # find best f1
+        best_key, best_val = "", -1
+        # print(dict_of_rouge)
+        for key, val in dict_of_rouge.items():
+            if key.endswith("_1"):
+                if val > best_val:
+                    best_val = val
+                    best_key = key
+        best_name = best_key[:-2]
         metrics = {
             # 'accuracy': self._accuracy.get_metric(reset),
-            'R_1': dict_of_rouge[self._rouge.name + '_1'],
-            'R_2': dict_of_rouge[self._rouge.name + '_2'],
-            'R_L': dict_of_rouge[self._rouge.name + '_L']
+            'R_1': dict_of_rouge['{}_1'.format(best_name)],
+            'R_2': dict_of_rouge['{}_2'.format(best_name)],
+            'R_L': dict_of_rouge['{}_L'.format(best_name)]
         }
         return metrics
 
@@ -370,14 +504,23 @@ if __name__ == '__main__':
         root = '/scratch/cluster/jcxu/GETSum'
     else:
         raise NotImplementedError
+
+    finetune = False
+
     logger.info("AllenNLP version {}".format(allennlp.__version__))
 
     jsonnet_file = os.path.join(root, 'configs/baseline_bert.jsonnet')
     params = Params.from_file(jsonnet_file)
     print(params.params)
+
     serialization_dir = tempfile.mkdtemp(prefix=os.path.join(root, 'tmp_exps'))
-    model = train_model(params, serialization_dir)
-    # serialization_dir = '/backup3/jcxu/NeuSegSum/tmp_expsn7oe84zt'
-    # print(serialization_dir)
-    # params = Params.from_file(jsonnet_file)
+    if finetune:
+        model_arch = '/datadrive/GETSum/tmp_expss6t0dhyj'
+        fine_tune_model_from_file_paths(model_arch,
+                                        os.path.join(root, 'configs/baseline_bert.jsonnet'),
+                                        # os.path.join(root, 'configs/finetune.jsonnet'),
+                                        serialization_dir
+                                        )
+    else:
+        model = train_model(params, serialization_dir)
     print(serialization_dir)

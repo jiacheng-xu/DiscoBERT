@@ -79,6 +79,13 @@ from collections import OrderedDict
 from ast import literal_eval as make_tuple
 
 
+def has_child(node):
+    if (not node['left']) and (not node['right']):
+        return False
+    else:
+        return True
+
+
 def return_tree(d: OrderedDict):
     root_node = d.popitem()  # root node
     root_node_sidx, root_node_eidx, root_node_node, root_node_rel = root_node[1]
@@ -87,9 +94,16 @@ def return_tree(d: OrderedDict):
         return {
             'left': None,
             'right': None,
-            'node': root_node[1],
+            's': root_node_sidx,
+            'e': root_node_eidx,
+            'type': root_node_node,
+            'rel': root_node_rel,
+            'head': root_node_sidx,
+            # 'node': root_node[1],
             'minimal': minimal_nucleus,
-            'dep': []
+            'dep': -1,
+            'link': [],
+            'unit': []
         }
     listed_items = list(d.items())
     right_child = listed_items[-1]  #
@@ -105,19 +119,37 @@ def return_tree(d: OrderedDict):
 
     left_node = return_tree(OrderedDict(left))
     right_node = return_tree(OrderedDict(right))
-    my_minimal = []
-    if left_node['node'][2] == 'Nucleus':
-        my_minimal += left_node['minimal']
-    if right_node['node'][2] == 'Nucleus':
-        my_minimal += right_node['minimal']
 
-    if left_node['left'] == None and left_node['node'][2] == 'Satellite':
-        left_node['dep'] = my_minimal
-    # elif left_node['left'] == None and left_node['node'][2] == 'Nucleus':
-    if right_node['right'] == None and right_node['node'][2] == 'Satellite':
-        right_node['dep'] = my_minimal
-        # print(right_node['node'])
-        # print(my_minimal)
+    # for link
+    # left head
+    left_head = left_node['head']
+    left_node_type = left_node['type']
+    # right head
+    right_head = right_node['head']
+    right_node_type = right_node['type']
+
+    if left_node_type == right_node_type:
+        my_head = left_head
+        my_dep = (left_head, right_head, root_node_rel)
+    elif left_node_type == 'Nucleus':
+        my_head = left_head
+        my_dep = (left_head, right_head, root_node_rel)
+    else:
+        my_head = right_head
+        my_dep = (right_head, left_head, root_node_rel)
+    # aggregate links from left and right
+    all_links = left_node['link'] + right_node['link'] + [my_dep]
+
+    # my_minimal = []
+    # if left_node['node'][2] == 'Nucleus':
+    #     my_minimal += left_node['minimal']
+    # if right_node['node'][2] == 'Nucleus':
+    #     my_minimal += right_node['minimal']
+
+    if (not has_child(left_node)) and left_node['type'] == 'Satellite':
+        left_node['dep'] = my_head
+    if (not has_child(right_node)) and right_node['type'] == 'Satellite':
+        right_node['dep'] = my_head  # TODO for the dependency , i am not 100% sure
 
     if right_node['right'] == None and left_node['right'] == None:
         unit = [left_node, right_node]
@@ -129,8 +161,14 @@ def return_tree(d: OrderedDict):
         unit = left_node['unit'] + right_node['unit']
     return {'left': left_node,
             'right': right_node,
-            'node': root_node[1],
-            'minimal': my_minimal,
+
+            's': root_node_sidx,
+            'e': root_node_eidx,
+            'type': root_node_node,
+            'rel': root_node_rel,
+            'head': my_head,
+            # 'dep':,
+            'link': all_links,
             'unit': unit}
 
     # return_tree right  sidx - ?
@@ -158,10 +196,19 @@ def read_bracket(bracket_file):
     # construct tree
     constructed_tree = return_tree(d)
     # anchor minimal dependence of all satelite
+
+    # we only need two things here:
+    # unit is all leaf nodes, which we are going to use the dependency info
+
     unit = constructed_tree['unit']
-    meta = [[u['node'][0], u['node'][2], u['node'][3], u['dep']] for u in unit]
+    meta = [[u['s'], u['type'], u['rel'], u['dep']] for u in
+            unit]  # 'node'[0] is the node id  [2] is the type N/S
+    # [3] is the relation   [4] is the dependency
     meta = sorted(meta, key=lambda tup: tup[0])
-    return meta
+
+    # link contains all the graph links
+    link = constructed_tree['link']  # [(src,tgt, rel), ....]
+    return meta, link
 
 
 import nltk
@@ -181,10 +228,10 @@ def load_sum(fname, path):
 
 def load_merge_bracket(fname, path):
     merge_file = fname + '.story.doc.conll.merge'
-    brack_file = fname + '.story.doc.brackets'
+    brack_file = fname + '.story.doc.conll.brackets'
     disco_seg = read_discourse_merge(os.path.join(path, merge_file))
-    # tree_dep = read_bracket(os.path.join(path, brack_file))
-    return disco_seg
+    node_meta, graph_links = read_bracket(os.path.join(path, brack_file))
+    return disco_seg, node_meta, graph_links
 
 
 def load_json(p, lower):
@@ -215,6 +262,7 @@ import multiprocessing
 
 def load_json_EDU_coref():
     pass
+
 
 def greedy_selection(doc_sent_list, abstract_sent_list, summary_size):
     def _rouge_clean(s):
@@ -337,7 +385,12 @@ def format_to_bert(chunk_path, oracle_mode, oracle_sent_num, min_src_ntokens=5, 
                  )
             )
         print(a_lst)
-        # MS_formate_to_bert(a_lst[0])
+        import random
+        random.shuffle(a_lst)
+        # MS_formate_to_bert(
+        #     ('/datadrive/data/dailymail/chunk/dailymail.train.107.json',
+        #      '/datadrive/data/dailymail/chunk/dailymail.train.107.bert.pt',
+        #      'greedy', oracle_sent_num, 5, 200, 3, 100))
         _p = Pool(multiprocessing.cpu_count())
         for d in _p.imap(MS_formate_to_bert, a_lst):
             pass
@@ -467,7 +520,7 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
         a_lst = [(f, seg_path, tok_path, summary_path) for f in corpora[corpus_type]]
 
         # unparel test
-        # format_processed_data(a_lst[0])
+        format_processed_data(a_lst[0])
 
         run_pool = Pool(multiprocessing.cpu_count())
         dataset = []
@@ -533,6 +586,8 @@ def load_snlp(f, tok_path):
             mention_elements = list(m)
             sent_location = int(mention_elements[0].text) - 1
             head_location_in_sent = int(mention_elements[3].text) - 1
+            start_location_in_sent = int(mention_elements[1].text) - 1
+            end_location_in_sent = int(mention_elements[2].text) - 1
             text = mention_elements[4].text
             if m.get('representative'):
                 represent = True
@@ -542,11 +597,17 @@ def load_snlp(f, tok_path):
             efficient_mentions.append((sent_location, head_location_in_sent, represent))
             return_mentions.append({'sent_id': sent_location,
                                     'word_id': head_location_in_sent,
+                                    'start_id': start_location_in_sent,
+                                    'end_id': end_location_in_sent,
                                     'text': text,
                                     'rep': represent
                                     })
 
         # load coref mention
+        # efficient_mentions keeps track of ONE set of coref mentions.
+        # for simplicity, we will write the coref info into the sent/word.
+        # for example, sent 01 word 01 has a list contains the corefs.
+
         for single_coref in efficient_mentions:
             single_coref_sent, single_coref_word, _ = single_coref
             return_sentences_obj[single_coref_sent]['corefs'][single_coref_word] = efficient_mentions
@@ -562,9 +623,11 @@ def load_snlp(f, tok_path):
 def format_processed_data(param):
     f, seg_path, tok_path, summary_path = param
     snlp_dict = load_snlp(f, tok_path)  # 'doc_id' 'coref' 'sent'
-    span = load_merge_bracket(f, seg_path)
+    span, node_meta, graph_links = load_merge_bracket(f, seg_path)
     target = load_sum(f, summary_path)
     return {'disco_span': span,
+            'disco_node': node_meta,
+            'disco_graph_links': graph_links,
             'tgt': target,
             'sent': snlp_dict['sent'],
             'doc_id': snlp_dict['doc_id'],

@@ -1,39 +1,57 @@
-local util = import "utils.libsonnet";
 
-local debug=true;
-
-
+local debug=false;
+local lr=1e-5;
 local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 9 else  888;
+local num_of_batch_per_train_epo=500;
 local global_root = '/datadrive/GETSum';
 
-local root = '/datadrive/data/cnndm';
-//local cuda_device = 0;
-//local cuda_device = 1;
-//local cuda_device = 2;
-local cuda_device = 3;
+//local root =global_root+'/bert_data';
+local root = '/datadrive/data/cnn';
+local cuda_device = 1;
+local bert_trainable=true;
+local optimizer="bert_adam";
+local pred_len=6;
+local warmup=0.1;
+local iden = {type:"identity"};
+local gcn ={type:"gcn", input_dims:[768], num_layers:1,hidden_dims:[768]};
+local lstm={type:"seq2seq",
+    "seq2seq_encoder":{
+     "type":"lstm",
+     "input_size":768,
+     "hidden_size":384,
+     "batch_first":true,
+     "bidirectional":true
+     }};
+local stacked_self_attention={
+     type:"seq2seq",
+     seq2seq_encoder:{
+     type:"stacked_self_attention",
+        input_dim:768,
+        hidden_dim:768,
+        projection_dim:768,
+        feedforward_hidden_dim:768,
+        num_layers:2,
+        num_attention_heads:4
+     }
+};
+local multi_head_self_attention={
+    type:"seq2seq",
+    "seq2seq_encoder":{
+    type:"multi_head_self_attention",
+    num_heads:4,
+    input_dim:768,
+    attention_dim:128,
+    values_dim:128,
+    output_projection_dim:768
+}};
 
-local use_disco=false;
-local pred_len_min=2;
-local pred_len_max=4;
+local SelfAttnSpan={
+    type:'self_attentive',
+    input_dim:768
 
-//local pred_len_min=5;
-//local pred_len_max=9;
-//local use_disco=true;
+};
 
-
-local use_disco_graph = false;
-local use_coref=false;
-
-
-//local use_disco_graph = false;
-//local use_coref=true;
-
-
-//local use_disco_graph = true;
-//local use_coref=false;
-
-local agg_func=util.easy_graph_encoder;
+local agg_func=iden;
 
 
 local train_data_path =root+'/train/';
@@ -42,9 +60,10 @@ local test_data_path =root+'/test/';
 
 local bert_config=global_root+'/configs/BertSumConfig.json';
 
-local BATCH_SIZE=10;
+local BATCH_SIZE=11;
+//local ser_dir=root+'/tmp/';
 ####
-//local train_data_path = if debug then test_data_path else train_data_path;
+//local train_data_path = test_data_path;
 ###
 
 local base_iterator={
@@ -63,12 +82,12 @@ local base_iterator_unlimit={
 //    "sorting_keys": [["doc_text", "num_tokens"]],
     batch_size: BATCH_SIZE+10,
   };
+# For a real model you'd want to use "bert-base-uncased" or similar.
+//local bert_model = "allennlp/tests/fixtures/bert/vocab.txt";
 local bert_model = "bert-base-uncased";
 local bert_vocab = global_root+"/bert_vocab";
 
-//local model_archive = "/datadrive/GETSum/tmp_expsx0o2m4hl";
-local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
-
+local model_archive = "/datadrive/GETSum/tmp_expsx0o2m4hl";
 //local model_archive = null;
 {
 //    "model-archive":model_archive,
@@ -84,7 +103,6 @@ local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
             }
         }
     },
-//    "datasets_for_vocab_creation": [],
      vocabulary: {
     directory_path: bert_vocab,
     extend: false,
@@ -97,16 +115,15 @@ local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
         "type": "tensor_bert",
         "bert_model": bert_model,
         "bert_config_file":bert_config,
-        "trainable":util.bert_trainable,
+        "trainable":bert_trainable,
         "dropout":dropout,
         "graph_encoder":agg_func,
 //        "pred_length":pred_len,
-        "use_disco":use_disco,
-        "use_disco_graph":use_disco_graph,
-        "use_coref":use_coref,
-        "span_extractor":util.SelfAttnSpan,
-         "min_pred_length":pred_len_min,       # 4 for cnn
-        "max_pred_length":pred_len_max,        # 6 for cnn
+        "use_disco":true,
+        "use_coref":false,
+        "span_extractor":SelfAttnSpan,
+        "min_pred_length":4,
+        "max_pred_length":6,
     },
      "iterator":base_iterator,
 //     {type: 'multiprocess',
@@ -126,9 +143,9 @@ local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
 //            "warmup":warmup,
 //        },
          "optimizer": {
-            "type": util.optimizer,
-            "lr": util.lr,
-            "warmup":util.warmup,
+            "type": optimizer,
+            "lr": lr,
+            "warmup":warmup,
             "t_total": 8000,
             "max_grad_norm": 1.0,
             "weight_decay": 0.01,
