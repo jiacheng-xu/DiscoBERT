@@ -304,13 +304,15 @@ class DocumentOracleDerivation(object):
 
         # preprocessing finished
         filtered_doc_list, map_from_new_to_ori_idx = self.pre_prune(processed_doc_list, target_ref_sum_list)
+
         combination_data_dict = {}
+
         for num_sent_in_combination in range(self.min_combination_num, self.max_combination_num):
             combination_data = self.comp_num_seg_out_of_p_sent_beam(_filtered_doc_list=filtered_doc_list,
                                                                     num_sent_in_combination=num_sent_in_combination,
                                                                     target_ref_sum_list=target_ref_sum_list,
                                                                     map_from_new_to_ori_idx=map_from_new_to_ori_idx)
-
+            combination_data_dict = {**combination_data_dict, **combination_data['data']}
             combination_data_dict[num_sent_in_combination] = combination_data
         return combination_data_dict
 

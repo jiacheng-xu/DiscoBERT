@@ -1,6 +1,12 @@
 from data_preparation.search_algo import greedy_selection
 from pytorch_pretrained_bert import BertTokenizer
 
+import copy
+
+from data_preparation.doc_oracle import DocumentOracleDerivation
+
+flatten = lambda l: [item for sublist in l for item in sublist]
+
 
 class MSBertData():
     def __init__(self, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents):
@@ -12,6 +18,7 @@ class MSBertData():
         self.sep_vid = self.tokenizer.vocab['[SEP]']
         self.cls_vid = self.tokenizer.vocab['[CLS]']
         self.pad_vid = self.tokenizer.vocab['[PAD]']
+        self.oracle_function = DocumentOracleDerivation(mixed_combination=True, tokenization=False)
 
     def preprocess_sent(self, sent_bag, summary, oracle_size=3):
         # TO have: src_subtoken_idxs [for bert encoder], labels[sent level],
@@ -21,11 +28,20 @@ class MSBertData():
         # src_txt, tgt_txt
         docs = [s.raw_words for s in sent_bag]
         original_src_txts = []
-        oracle_ids = greedy_selection(docs, summary, oracle_size)
+        multiple_labels = self.oracle_function.derive_doc_oracle([" ".join(x) for x in docs], " ".join(flatten(summary)), "")
+        # oracle_ids = greedy_selection(docs, summary, oracle_size)
         # oracle
-        labels = [0] * len(sent_bag)
-        for l in oracle_ids:
-            labels[l] = 1
+
+        all_labels = []
+        for k, v in multiple_labels.items():
+            labels = [0] * len(sent_bag)
+            for l in v:
+                labels[l] = 1
+            all_labels.append(labels)
+
+        # labels = [0] * len(sent_bag)
+        # for l in oracle_ids:
+        #     labels[l] = 1
 
         src_tokens = []
         for idx, s in enumerate(sent_bag):
@@ -44,9 +60,9 @@ class MSBertData():
                 segments_ids += s * [1]
         cls_ids = [i for i, t in enumerate(src_tok_index) if t == self.cls_vid]
         tgt_txt = '<q>'.join([' '.join(tt) for tt in summary])
-        return src_tok_index, labels, segments_ids, cls_ids, original_src_txts, tgt_txt
+        return src_tok_index, all_labels, segments_ids, cls_ids, original_src_txts, tgt_txt
 
-    def preprocess_disc(self, disco_bag, summary, oracle_size):
+    def preprocess_disc(self, disco_bag, summary):
         # oracle labels
         docs = [disc.get_readable_words_as_list() for disc in disco_bag]
 
@@ -54,25 +70,35 @@ class MSBertData():
         modified_docs_w_deps = []
         oracle_inclusion = []
         for idx, disco in enumerate(disco_bag):
-            if disco.disco_dep >= 0 and (disco.disco_dep<len(docs)):
-                modified_docs_w_deps.append(
-                    docs[disco.disco_dep] + docs[idx]
-                )
-                oracle_inclusion.append([disco.disco_dep, idx])
+            # tmp_txt, tmp_oracle_inclusion = copy.deepcopy(docs[idx]),[idx]
+            tmp_txt, tmp_oracle_inclusion = [], []
+            if disco.dep != []:
+                for _d in disco.dep:
+                    if _d < len(docs):
+                        tmp_txt += docs[_d]
+                        tmp_oracle_inclusion.append(_d)
+                tmp_txt += copy.deepcopy(docs[idx])
+                tmp_oracle_inclusion.append(idx)
+                modified_docs_w_deps.append(" ".join(tmp_txt))
+                oracle_inclusion.append(tmp_oracle_inclusion)
             else:
                 modified_docs_w_deps.append(
-                    docs[idx]
+                    " ".join(docs[idx])
                 )
                 oracle_inclusion.append([idx])
 
-        oracle_ids = greedy_selection(modified_docs_w_deps, summary, oracle_size)
+        multiple_labels = self.oracle_function.derive_doc_oracle(modified_docs_w_deps, " ".join(flatten(summary)), "")
+        # oracle_ids = greedy_selection(modified_docs_w_deps, summary, oracle_size)
 
-        labels = [0] * len(disco_bag)
-        for l in oracle_ids:
-            ora = oracle_inclusion[l]
-            for o in ora:
-                labels[o] = 1
-
+        # labels = [0] * len(disco_bag)
+        all_labels = []
+        for k, v in multiple_labels.items():
+            labels = [0] * len(disco_bag)
+            for l in v:
+                ora = oracle_inclusion[l]
+                for o in ora:
+                    labels[o] = 1
+            all_labels.append(labels)
         # coref biiiigggg matrix
         coref_lookup_dict = {}
         # coref = [[False for _ in range(len(disco_bag))] for _ in range(len(disco_bag))]
@@ -109,4 +135,4 @@ class MSBertData():
         # span indexs [ for discourse level]
         # entity coref linking edge [discourse level]
         # skip for now: discourse linking edge [discourse level only]
-        return labels, spans, coref_set
+        return all_labels, spans, coref_set

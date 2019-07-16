@@ -50,6 +50,10 @@ class DiscourseUnit():
         self.disco_rel = tree_node[2]
         self.disco_dep = tree_node[3] - 1
 
+    def add_dep(self, all_deps):
+        avail_deps = [x for x in all_deps if x[0] - 1 == self.unq_idx]
+        self.dep = [y[1] - 1 for y in avail_deps]
+
     def get_readable_words_as_list(self):
         return self.raw_words
 
@@ -100,8 +104,8 @@ def get_next_node(inp):
 
 
 def MS_formate_to_bert(params):
-    length_limit = 510
-    read_json_file, wt_pt_file, oracle_mode, oracle_sent_num, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents = params
+    # length_limit = 510
+    read_json_file, wt_pt_file, oracle_mode, oracle_sent_num, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents, length_limit = params
     # print(read_json_file)
     # TODO keep file exist check
     if os.path.exists(wt_pt_file):
@@ -114,13 +118,15 @@ def MS_formate_to_bert(params):
     jobs = json.load(open(read_json_file))
     datasets = []
     for d in jobs:
-        disco_node = d['disco_node']
-        gen = get_next_node(disco_node)
-        if len(disco_node) == 0:
-            print(d)
-            continue
-        # print(len(disco_node))
-        disco_graph_links = d['disco_graph_links']
+        # disco_node = d['disco_node']
+        # gen = get_next_node(disco_node)
+        # if len(disco_node) == 0:
+        #     print(d)
+        #     continue
+        disco_dep = d['disco_dep']
+
+        # disco_graph_links = d['disco_graph_links']
+        disco_links = d['disco_link']  #####
 
         span, tgt = d['disco_span'], d['tgt']
         sent, doc_id, coref = d['sent'], d['doc_id'], d['coref']
@@ -142,10 +148,12 @@ def MS_formate_to_bert(params):
             tmp_disco_bag = []
             for disc in this_disco:
 
-                tree_node = next(gen)
+                # tree_node = next(gen)
                 start, end = disc
                 disc_piece = DiscourseUnit(len(disco_bag) + len(tmp_disco_bag), idx, rel_start=start, rel_end=end)
-                disc_piece.add_dep_info(tree_node)
+
+                # disc_piece.add_dep_info(tree_node)
+                disc_piece.add_dep(disco_dep)
                 for jdx in range(start, end + 1):
                     _toks = this_tokens[jdx]
 
@@ -171,9 +179,11 @@ def MS_formate_to_bert(params):
 
         effective_disco_number = len(disco_bag)
         # clean disco_graph_links
-        disco_graph_links = [(tup[0] - 1, tup[1] - 1, tup[2]) for tup in disco_graph_links if
+        disco_graph_links = [(tup[0] - 1, tup[1] - 1, tup[2]) for tup in disco_links if
                              (tup[0] <= effective_disco_number and tup[1] <= effective_disco_number)]
-        disc_oracle_ids, disc_spans, disc_coref = bert_data.preprocess_disc(disco_bag, tgt, 4)
+
+        disc_oracle_ids, disc_spans, disc_coref = bert_data.preprocess_disc(disco_bag, tgt)
+
         src_tok_index, sent_oracle_labels, segments_ids, \
         cls_ids, original_sent_txt_list_of_str, tgt_txt = bert_data.preprocess_sent(sent_bag, summary=tgt)
         # TO have: src_subtoken_idxs [for bert encoder], labels[sent level and discourse level],
@@ -202,7 +212,10 @@ def MS_formate_to_bert(params):
                        'd_labels': disc_oracle_ids,
                        'd_span': disc_spans,
                        'd_coref': disc_coref,
-                       'd_graph': disco_graph_links
+                       'd_graph': disco_graph_links,
+                       'disco_dep': disco_dep,
+                       'doc_id': doc_id
+
                        }
         if len(src_tok_index) < 15 or len(tgt_txt) < 3:
             continue

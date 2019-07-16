@@ -97,6 +97,7 @@ local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
         "type": "tensor_bert",
         "bert_model": bert_model,
         "bert_config_file":bert_config,
+        "bert_max_length":765,
         "trainable":util.bert_trainable,
         "dropout":dropout,
         "graph_encoder":agg_func,

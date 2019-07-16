@@ -223,6 +223,7 @@ class TensorBertSum(Model):
     def __init__(self, vocab: Vocabulary,
                  bert_model: Union[str, BertModel],
                  bert_config_file: str,
+                 bert_max_length: int,
                  graph_encoder: GraphEncoder,
                  span_extractor: SpanExtractor,
                  trainable: bool = True,
@@ -242,7 +243,12 @@ class TensorBertSum(Model):
             self.bert_model = PretrainedBertModel.load(bert_model)
         else:
             self.bert_model = bert_model
-
+        if bert_max_length > 512:
+            out = self.bert_model.embeddings.position_embeddings.weight
+            out = torch.nn.functional.interpolate(torch.unsqueeze(out.permute((1,0),0),0), size=bert_max_length, mode='linear')
+            out= out.squeeze(0)
+            out = out.permute((1,0))
+            self.bert_model.embeddings.position_embeddings.weight = out
         self.bert_model.config = BertConfig.from_json_file(bert_config_file)
         self._graph_encoder = graph_encoder
 

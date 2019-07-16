@@ -72,7 +72,12 @@ def read_discourse_merge(file):
     for k, v in edu_dict.items():
         sent_id, start_idx, end_idx = v
         sent_with_edu_spans[sent_id].append((start_idx, end_idx))
-    return sent_with_edu_spans
+
+    EDU_pool = {}
+    for k, v in edu_dict.items():
+        EDU_pool[k] = v[0]
+
+    return sent_with_edu_spans, EDU_pool
 
 
 from collections import OrderedDict
@@ -175,6 +180,115 @@ def return_tree(d: OrderedDict):
     # return_tree left     ? - eidx
 
 
+def determine_head(left_node, right_node):
+    if left_node['type'] == 'n':
+        return left_node['head']
+    elif right_node['type'] == 'n':
+        return right_node['head']
+    else:
+        return left_node['head']
+
+
+def new_return_tree(d, EDU_pool):
+    root_node = d.popitem()  # root node
+    root_node_sidx, root_node_eidx, root_node_node, root_node_rel = root_node[1]
+    root_node_node = 'n' if root_node_node.startswith('N') else 's'
+    if len(d) == 0:
+        # reach the leaf node
+        return {
+            'left': None,
+            'right': None,
+            's': root_node_sidx,
+            'e': root_node_eidx,
+            'type': root_node_node,
+            'rel': root_node_rel,
+            'head': root_node_sidx,
+            # 'node': root_node[1],
+            # 'minimal': minimal_nucleus,
+            'dep': [],
+            'link': [],
+            'unit': []
+        }
+
+    listed_items = list(d.items())
+
+    right_child = listed_items[-1]  #
+    r_sidx, r_eidx, r_node, r_rel = right_child[1]
+
+    l_sidx = root_node_sidx
+    l_eidx = r_sidx - 1
+
+    keys = list(d.keys())
+    cut_point = keys.index("{}_{}".format(l_sidx, l_eidx)) + 1
+    left = listed_items[:cut_point]
+    right = listed_items[cut_point:]
+
+    left_node = new_return_tree(OrderedDict(left), EDU_pool)
+    right_node = new_return_tree(OrderedDict(right), EDU_pool)
+
+    # print('here')
+    # my head is my left (if there are two N sons) N's head
+    my_head = determine_head(left_node, right_node)
+
+    deps = left_node['dep'] + right_node['dep']
+    # If one of my son is S, then add to dependency bank where dep(S) -> my head
+    if left_node['type'] == 's' and right_node['type'] == 's':
+        raise NotImplementedError
+
+    if left_node['type'] == 's':
+        if EDU_pool['{}'.format(left_node['s'])] == EDU_pool['{}'.format(my_head)] == EDU_pool[
+            '{}'.format(left_node['e'])]:
+
+            for x in range(left_node['s'], left_node['e'] + 1):
+                deps.append((x, my_head))
+    if right_node['type'] == 's':
+        if EDU_pool['{}'.format(right_node['s'])] == EDU_pool['{}'.format(right_node['e'])] == EDU_pool[
+            '{}'.format(my_head)]:
+            for x in range(right_node['s'], right_node['e'] + 1):
+                deps.append((x, my_head))
+    # link: link the head of my sons
+    links = left_node['link'] + right_node['link']
+    links.append((left_node['head'], right_node['head'], root_node_rel))
+
+    return {
+        'left': left_node,
+        'right': right_node,
+        's': root_node_sidx,
+        'e': root_node_eidx,
+        'type': root_node_node,
+        'rel': root_node_rel,
+        'head': my_head,
+        # 'node': root_node[1],
+        # 'minimal': minimal_nucleus,
+        'dep': deps,
+        'link': links,
+        # 'unit': []
+    }
+
+
+def new_read_bracket(bracket_file, EDU_pool):
+    with open(bracket_file, 'r') as fd:
+        lines = fd.read().splitlines()
+    treebank = [None for _ in range(1000)]
+    d = OrderedDict()
+    max_num = -1
+
+    for l in lines:
+        tup = make_tuple(l)
+        index, node, relation = tup
+        sidx, eidx = index
+        d['{}_{}'.format(sidx, eidx)] = [sidx, eidx, node, relation]
+        max_num = max(max_num, eidx)
+        if sidx == eidx:
+            treebank[sidx] = [node, relation, None]
+    d['{}_{}'.format(1, max_num)] = [1, max_num, 'Nucleus', 'ROOT']
+    x = new_return_tree(d, EDU_pool)
+    # print(x['link'])
+    # print(x['dep'])
+    # exit()
+    return x['link'], x['dep']
+
+
 def read_bracket(bracket_file):
     # print(bracket_file)
     with open(bracket_file, 'r') as fd:
@@ -229,9 +343,11 @@ def load_sum(fname, path):
 def load_merge_bracket(fname, path):
     merge_file = fname + '.story.doc.conll.merge'
     brack_file = fname + '.story.doc.conll.brackets'
-    disco_seg = read_discourse_merge(os.path.join(path, merge_file))
-    node_meta, graph_links = read_bracket(os.path.join(path, brack_file))
-    return disco_seg, node_meta, graph_links
+    disco_seg, EDU_pool = read_discourse_merge(os.path.join(path, merge_file))
+
+    link, dep = new_read_bracket(os.path.join(path, brack_file), EDU_pool)
+    # node_meta, graph_links = read_bracket(os.path.join(path, brack_file))
+    return disco_seg, dep, link
 
 
 def load_json(p, lower):
@@ -372,7 +488,7 @@ class BertData():
 
 
 def format_to_bert(chunk_path, oracle_mode, oracle_sent_num, min_src_ntokens=5, max_src_ntokens=200, min_nsents=3,
-                   max_nsents=100):
+                   max_nsents=100, length_limit=766):
     datasets = ['train', 'valid', 'test']
 
     for corpus_type in datasets:
@@ -381,16 +497,13 @@ def format_to_bert(chunk_path, oracle_mode, oracle_sent_num, min_src_ntokens=5, 
             real_name = json_f.split('/')[-1]
             a_lst.append(
                 (json_f, pjoin(chunk_path, real_name.replace('json', 'bert.pt')),
-                 oracle_mode, oracle_sent_num, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents
+                 oracle_mode, oracle_sent_num, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents, length_limit
                  )
             )
         print(a_lst)
         import random
         random.shuffle(a_lst)
-        # MS_formate_to_bert(
-        #     ('/datadrive/data/dailymail/chunk/dailymail.train.107.json',
-        #      '/datadrive/data/dailymail/chunk/dailymail.train.107.bert.pt',
-        #      'greedy', oracle_sent_num, 5, 200, 3, 100))
+        # MS_formate_to_bert(a_lst[0])
         _p = Pool(multiprocessing.cpu_count())
         for d in _p.imap(MS_formate_to_bert, a_lst):
             pass
@@ -433,10 +546,12 @@ def tokenize(raw_path, save_path, snlp='/datadrive/stanford-corenlp-full-2018-10
             if (not s.endswith('doc')):
                 continue
             f.write("%s\n" % (os.path.join(stories_dir, s)))
+    import multiprocessing
+    n_cpu = multiprocessing.cpu_count() - 3
     command = ['java', '-Xmx100g', '-cp', '{}/*'.format(snlp),
                'edu.stanford.nlp.pipeline.StanfordCoreNLP', '-annotators', 'tokenize,ssplit,pos,lemma,ner,parse,coref',
-               '-threads', '45',
-               '-ssplit.newlineIsSentenceBreak', 'two', '-filelist', 'mapping_for_corenlp.txt', '-outputFormat',
+               '-threads', '{}'.format(n_cpu),
+               '-ssplit.newlineIsSentenceBreak', 'always', '-filelist', 'mapping_for_corenlp.txt', '-outputFormat',
                'xml', '-outputDirectory', tokenized_stories_dir]
     print("Tokenizing %i files in %s and saving in %s..." % (len(stories), stories_dir, tokenized_stories_dir))
     print(" ".join(command))
@@ -504,6 +619,7 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
         for line in open(pjoin(map_urls_path, 'mapping_' + corpus_type + '.txt')):
             temp.append(hashhex(line.strip()))
         corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
+
     train_files, valid_files, test_files = [], [], []
     for f in glob.glob(pjoin(seg_path, '*.merge')):
         # print("reading {}".format(f))
@@ -516,9 +632,10 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
             train_files.append(real_name)
 
     corpora = {'train': train_files, 'valid': valid_files, 'test': test_files}
+    # print(len(corpora['train']))
     for corpus_type in ['train', 'valid', 'test']:
         a_lst = [(f, seg_path, tok_path, summary_path) for f in corpora[corpus_type]]
-
+        print(len(a_lst))
         # unparel test
         format_processed_data(a_lst[0])
 
@@ -623,12 +740,19 @@ def load_snlp(f, tok_path):
 def format_processed_data(param):
     f, seg_path, tok_path, summary_path = param
     snlp_dict = load_snlp(f, tok_path)  # 'doc_id' 'coref' 'sent'
-    span, node_meta, graph_links = load_merge_bracket(f, seg_path)
+    span, dep, link = load_merge_bracket(f, seg_path)
     target = load_sum(f, summary_path)
     return {'disco_span': span,
-            'disco_node': node_meta,
-            'disco_graph_links': graph_links,
+            'disco_dep': dep,
+            'disco_link': link,
             'tgt': target,
             'sent': snlp_dict['sent'],
             'doc_id': snlp_dict['doc_id'],
-            'coref': snlp_dict['coref']}
+            'coref': snlp_dict['coref']
+            }
+
+
+if __name__ == '__main__':
+    load_merge_bracket(
+        'ff76e74d41c00881d77aa35e27986eda2feaf0d6', '/datadrive/data/dailymail/segs/'
+    )

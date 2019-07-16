@@ -2,17 +2,18 @@ import argparse
 
 from data_preparation.nlpyang_data_builder import tokenize
 import os
-
+import time
 import subprocess
 
 
-def dplp_interface(dplp_dir, xml_path, seg_path):
+def dplp_interface(dplp_dir, xml_path):
     # first convert files in xml_path to files.conll in xml_path
     # then segmenter xml_path to segment
     # convert XML file to DPLP readable CONLL
     # cd DPLP
     command_convert = "python2 {}/convert.py {}".format(dplp_dir, xml_path)
     print("Calling {}".format(command_convert))
+    print("in tokenzied dir, you will have .conll format from .xml")
     subprocess.call(command_convert, shell=True)
 
     # command_seg = "python2 {}/segmenter.py {} {}".format(dplp_dir, xml_path, seg_path)
@@ -25,6 +26,14 @@ def dplp_interface(dplp_dir, xml_path, seg_path):
     # python2 convert.py /datadrive/data/cnn/tokenized
     # python2 segmenter.py /datadrive/data/cnn/tokenized /datadrive/data/cnn/segs
     # python2 rstparser.py /datadrive/data/cnn/segs False
+
+
+def dplp_rst_parser(dplp_dir, seg_path):
+    os.chdir(dplp_dir)
+    command_rst = "python2 {}/rstparser.py {} False".format(dplp_dir, seg_path)
+    print("Calling {}".format(command_rst))
+    subprocess.call(command_rst, shell=True)
+    print("finish calling {}".format(command_rst))
 
 
 def split_article_summary(path_of_stories, path_tgt_article, path_tgt_summary):
@@ -55,7 +64,7 @@ def split_article_summary(path_of_stories, path_tgt_article, path_tgt_summary):
                 print(f)
                 continue
             with open(os.path.join(path_tgt_article, f + '.doc'), 'w') as farticle:
-                source = source[:30]
+                source = source[:50]
                 farticle.write("\n".join(source))
             with open(os.path.join(path_tgt_summary, f + '.sum'), 'w') as fsum:
                 fsum.write("\n".join(tgt))
@@ -99,7 +108,7 @@ if __name__ == '__main__':
     parser.add_argument('-max_src_ntokens', default=200, type=int)
     parser.add_argument('-oracle_sent_num', default=5, type=int)
     # parser.add_argument("-lower", type=str2bool, nargs='?', const=True, default=True)
-
+    parser.add_argument('-snlp_path', default='/home/cc/stanford-corenlp-full-2018-10-05')
     parser.add_argument('-log_file', default='../../logs/cnndm.log')
 
     parser.add_argument('-dataset', default='', help='train, valid or test, defaul will process all datasets')
@@ -126,14 +135,22 @@ if __name__ == '__main__':
             os.mkdir(tokenized_doc)
         tokenize(raw_path=os.path.join(args.data_dir, args.rel_split_doc_path),
                  save_path=tokenized_doc,
-                 snlp='/home/cc/stanford-corenlp-full-2018-10-05')
+                 snlp=args.snlp_path)
         print("finishing tokenization")
     elif args.mode == 'dplp':
         if not os.path.join(args.data_dir, args.rel_rst_seg_path):
             os.mkdir(os.path.join(args.data_dir, args.rel_rst_seg_path))
+
         dplp_interface(args.dplp_path,
-                       os.path.join(args.data_dir, args.rel_tok_path),
-                       os.path.join(args.data_dir, args.rel_rst_seg_path))
+                       os.path.join(args.data_dir, args.rel_tok_path)
+                       )
+    elif args.mode == 'rst':
+        if not os.path.join(args.data_dir, args.rel_rst_seg_path):
+            os.mkdir(os.path.join(args.data_dir, args.rel_rst_seg_path))
+
+        dplp_rst_parser(args.dplp_path,
+                        os.path.join(args.data_dir, args.rel_rst_seg_path)
+                        )
     elif args.mode == 'format_to_lines':
         seg_path = os.path.join(args.data_dir, args.rel_rst_seg_path)
         tokenized_doc = os.path.join(args.data_dir, args.rel_tok_path)
@@ -150,7 +167,6 @@ if __name__ == '__main__':
 
         save_path = os.path.join(args.data_dir,
                                  args.rel_save_path)
-        import time
 
         start_time = time.time()
         format_to_bert(save_path,
