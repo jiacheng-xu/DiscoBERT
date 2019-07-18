@@ -1,22 +1,22 @@
 import re,itertools
 
 from data_preparation.nlpyang_utils import _get_word_ngrams,_get_ngrams
-def cal_rouge(evaluated_ngrams, reference_ngrams):
-    reference_count = len(reference_ngrams)
-    evaluated_count = len(evaluated_ngrams)
+def cal_rouge(evaluated_ngrams:set, reference_ngrams:set, evaluated_len:int, reference_len:int):
+    # reference_count = len(reference_ngrams)
+    # evaluated_count = len(evaluated_ngrams)
 
     overlapping_ngrams = evaluated_ngrams.intersection(reference_ngrams)
     overlapping_count = len(overlapping_ngrams)
 
-    if evaluated_count == 0:
+    if evaluated_len == 0:
         precision = 0.0
     else:
-        precision = overlapping_count / evaluated_count
+        precision = overlapping_count / evaluated_len
 
-    if reference_count == 0:
+    if reference_len == 0:
         recall = 0.0
     else:
-        recall = overlapping_count / reference_count
+        recall = overlapping_count / reference_len
 
     f1_score = 2.0 * ((precision * recall) / (precision + recall + 1e-8))
     return {"f": f1_score, "p": precision, "r": recall}

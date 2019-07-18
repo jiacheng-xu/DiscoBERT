@@ -238,14 +238,15 @@ def new_return_tree(d, EDU_pool):
     if left_node['type'] == 's':
         if EDU_pool['{}'.format(left_node['s'])] == EDU_pool['{}'.format(my_head)] == EDU_pool[
             '{}'.format(left_node['e'])]:
-
-            for x in range(left_node['s'], left_node['e'] + 1):
-                deps.append((x, my_head))
+            deps.append((left_node['head'], my_head))
+            # for x in range(left_node['s'], left_node['e'] + 1):
+            #     deps.append((x, my_head))
     if right_node['type'] == 's':
         if EDU_pool['{}'.format(right_node['s'])] == EDU_pool['{}'.format(right_node['e'])] == EDU_pool[
             '{}'.format(my_head)]:
-            for x in range(right_node['s'], right_node['e'] + 1):
-                deps.append((x, my_head))
+            deps.append((right_node['head'], my_head))
+            # for x in range(right_node['s'], right_node['e'] + 1):
+            #     deps.append((x, my_head))
     # link: link the head of my sons
     links = left_node['link'] + right_node['link']
     links.append((left_node['head'], right_node['head'], root_node_rel))
@@ -754,5 +755,5 @@ def format_processed_data(param):
 
 if __name__ == '__main__':
     load_merge_bracket(
-        'ff76e74d41c00881d77aa35e27986eda2feaf0d6', '/datadrive/data/dailymail/segs/'
+        'bf10dc849e5fa7325df269c2b28fcefebb5c956c', '/datadrive/data/cnn/segs/'
     )

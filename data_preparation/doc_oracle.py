@@ -24,7 +24,7 @@ ps = PorterStemmer()
 from typing import List
 
 flatten = lambda l: [item for sublist in l for item in sublist]
-
+import multiprocessing
 
 class DocumentOracleDerivation(object):
     def __init__(self,
@@ -73,9 +73,11 @@ class DocumentOracleDerivation(object):
         processed_ref_sum_str = self._rouge_clean(ref_sum)
         processed_prefix_sum_str = self._rouge_clean(prefix_summary)
         if self.tokenization:
+            new_processed_doc_list = []
             token_doc_list = self.tokenizer.batch_tokenize(processed_doc_list)
             for doc in token_doc_list:
-                processed_doc_list.append([word.text for word in doc])
+                new_processed_doc_list.append([word.text for word in doc])
+            processed_doc_list = new_processed_doc_list
             processed_ref_sum_list = [w.text for w in self.tokenizer.tokenize(processed_ref_sum_str)]
             processed_prefix_sum_list = [w.text for w in self.tokenizer.tokenize(processed_prefix_sum_str)]
         else:
@@ -94,6 +96,9 @@ class DocumentOracleDerivation(object):
         #     processed_prefix_sum_list = [x for x in processed_prefix_sum_list if x not in self.stop_words]
 
         target_ref_sum_list = [x for x in processed_ref_sum_list if x not in processed_prefix_sum_list]
+
+        # try
+        f_score_list, score_matrix = self.iter_rouge(processed_doc_list, target_ref_sum_list)
 
         # preprocessing finished
         filtered_doc_list, map_from_new_to_ori_idx = self.pre_prune(processed_doc_list, target_ref_sum_list)
@@ -126,6 +131,44 @@ class DocumentOracleDerivation(object):
             return_dict[k] = v['label']
         return return_dict
 
+    def iter_rouge(self, list_of_doc, ref_sum):
+        f_score_list = [self.get_rouge_ready_to_use(ref_sum, x) for x in list_of_doc]
+        # score_matrix_delta = [[0 for _ in range(len(list_of_doc))] for _ in range(len(list_of_doc))]
+        score_matrix = [[0 for _ in range(len(list_of_doc))] for _ in range(len(list_of_doc))]
+        input = []
+        for idx, x in enumerate(list_of_doc):
+            for jdx, y in enumerate(list_of_doc):
+                input.append((idx, jdx, ref_sum,x+y))
+                s = self.get_rouge_ready_to_use(ref_sum, x + y)
+                score_matrix[idx][jdx] = s
+                # if f_score_list[idx] < 0.01:
+                #
+                #     score_matrix_delta[idx][jdx] = 0
+                # else:
+                #     score_matrix_delta[idx][jdx] = min(s / (f_score_list[idx] + 0.001), 2)
+        # import numpy as np
+        # np.set_printoptions(precision=2)
+        # import seaborn as sns
+        # sns.set()
+        # f_score_list = np.asarray([f_score_list, f_score_list])
+        # bx = sns.heatmap(f_score_list)
+        # fig = bx.get_figure()
+        # fig.savefig("individual_output.png")
+        # print('-' * 30)
+        # print(np.asarray(score_matrix))
+        # score_matrix_delta = np.asarray(score_matrix_delta)
+        # ax = sns.heatmap(score_matrix_delta)
+        # fig = ax.get_figure()
+        # fig.savefig("output.png")
+
+
+        # ncpu=multiprocessing.cpu_count()
+        # pool = multiprocessing.Pool(processes=ncpu)
+        # results = pool.starmap(self.get_rouge_ready_to_use, input)
+        # for r in results:
+        #     score, idx,jdx = r
+        #     score_matrix[idx][jdx] = score
+        return f_score_list, score_matrix
     def comp_num_seg_out_of_p_sent_beam(self, _filtered_doc_list,
                                         num_sent_in_combination,
                                         target_ref_sum_list,
@@ -236,9 +279,15 @@ class DocumentOracleDerivation(object):
     def _rouge_clean(s):
         return re.sub(r'[^a-zA-Z0-9 ]', '', s)
 
+    def get_rouge_ready_to_use_w_index(self,gold_tokens: List[str],
+                               pred_tokens: List[str],idx,jdx):
+        return self.get_rouge_ready_to_use(gold_tokens,pred_tokens), idx,jdx
     # No synomous standard version
+
     def get_rouge_ready_to_use(self, gold_tokens: List[str],
                                pred_tokens: List[str]):
+        len_gold = len(gold_tokens)
+        len_pred = len(pred_tokens)
 
         gold_bigram = _get_ngrams(2, gold_tokens)
         pred_bigram = _get_ngrams(2, pred_tokens)
@@ -250,8 +299,8 @@ class DocumentOracleDerivation(object):
             gold_unigram = set(gold_tokens)
             pred_unigram = set(pred_tokens)
 
-        rouge_1 = cal_rouge(pred_unigram, gold_unigram)['f']
-        rouge_2 = cal_rouge(pred_bigram, gold_bigram)['f']
+        rouge_1 = cal_rouge(pred_unigram, gold_unigram, len_pred, len_gold)['f']
+        rouge_2 = cal_rouge(pred_bigram, gold_bigram, len_pred, len_gold)['f']
         rouge_score = (rouge_1 + rouge_2 * 2) / 2
         return rouge_score
 
@@ -270,3 +319,22 @@ class DocumentOracleDerivation(object):
             filtered_doc_list.append(list_of_doc[top_p_sent_idx[i]])
             map_from_new_to_ori_idx.append(top_p_sent_idx[i])
         return filtered_doc_list, map_from_new_to_ori_idx
+
+
+if __name__ == '__main__':
+    d = DocumentOracleDerivation(mixed_combination=True, tokenization=False)
+    with open('example.txt', 'r') as fd:
+        lines = fd.read().splitlines()
+    ref_sum = [
+        "Crunch vote on Mrs von der Leyen's appointment taking place this afternoon",
+        "Mrs von der Leyen needs the support of a majority of MEPs to be EU's new boss",
+        "She will be first female president of the European Commission if she wins vote",
+        "She is set to replace Jean - Claude Juncker on November 1 - the day after Brexit",
+        "Mrs von der Leyen said she is 'ready' to agree a new Brexit delay past October 31",
+        "Nigel Farage said the comments had 'just made Brexit a lot more popular'",
+        "Boris Johnson last night recommitted to his 'do or die' October 31 Brexit promise",
+        "He and Jeremy Hunt also said backstop must be deleted to agree new deal",
+    ]
+
+    output = d.derive_doc_oracle(lines, " ".join(ref_sum))
+    print(output)

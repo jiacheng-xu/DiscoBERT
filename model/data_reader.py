@@ -16,6 +16,7 @@ from allennlp.data.vocabulary import Vocabulary
 from allennlp.modules.token_embedders.bert_token_embedder import BertEmbedder
 import sys
 import numpy
+
 numpy.set_printoptions(threshold=sys.maxsize)
 import string
 from allennlp.common.util import START_SYMBOL, END_SYMBOL
@@ -90,6 +91,7 @@ class CNNDMDatasetReader(DatasetReader):
                  ) -> None:
         super().__init__(lazy=lazy)
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
+        self._token_indexers['bert'].max_pieces=1024
         self._debug = debug
         self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
         # self.bert_tokenizer = WordTokenizer(word_splitter=BertBasicWordSplitter())
@@ -147,6 +149,8 @@ class CNNDMDatasetReader(DatasetReader):
                                                 d['d_span'],
                                                 d['d_coref'],
                                                 d['d_graph'],
+                                                d['disco_dep'],
+                                                d['doc_id'],
                                                 identify_partition_name(f)
                                                 )
         else:
@@ -175,6 +179,8 @@ class CNNDMDatasetReader(DatasetReader):
                                                 d['d_span'],
                                                 d['d_coref'],
                                                 d['d_graph'],
+                                                d['disco_dep'],
+                                                d['doc_id'],
                                                 identify_partition_name(f)
                                                 )
 
@@ -221,7 +227,9 @@ class CNNDMDatasetReader(DatasetReader):
                          disco_span,
                          disco_coref,
                          disco_graph,
-                         type: str
+                         disco_dep,
+                         doc_id: str,
+                         spilit_type
                          ):
 
         # sentence1 = "the quickest quick brown fox jumped over the lazy dog"
@@ -232,7 +240,7 @@ class CNNDMDatasetReader(DatasetReader):
         assert len(labels) > 0
         assert len(clss) > 0
 
-        num_of_disco = len(disco_label)
+        num_of_disco = len(disco_label[0])
 
         text_tokens = [Token(text=self.bert_lut[x], idx=x) for x in doc_text][1:-1]
         text_tokens = TextField(text_tokens, self._token_indexers
@@ -289,10 +297,13 @@ class CNNDMDatasetReader(DatasetReader):
 
         meta_field = MetadataField({
             "source": 'cnndm',
-            "type": type,
+            "type": spilit_type,
             "sent_txt": sent_txt,
             "disco_txt": disco_txt,
             "tgt_txt": tgt_txt,
+            'disco_dep': disco_dep,
+            'doc_id':doc_id
+
             # "coref_graph": coref_graph
         })
         fields = {"tokens": text_tokens,

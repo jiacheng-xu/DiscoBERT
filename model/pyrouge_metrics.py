@@ -8,10 +8,14 @@ import tempfile
 import time
 import random
 import string
+
+
 def randomString(stringLength=10):
     """Generate a random string of fixed length """
     letters = string.ascii_lowercase
     return ''.join(random.choice(letters) for i in range(stringLength))
+
+
 import pyrouge
 from overrides import overrides
 from allennlp.training.metrics.metric import Metric
@@ -79,13 +83,17 @@ class PyrougeEvaluation(Metric):
         logger = logging.getLogger()
         now = datetime.datetime.now()
         stamp = "{}_{}_{}_{}".format(now.day, now.hour, now.minute, randomString(10))
+
+        print("{} samples in bag".format(len(self.pred_str_bag)))
+
         with open(os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp)), 'w') as wfd:
             wfd.write("\n".join(self.pred_str_bag))
 
         with open(os.path.join(self.ref_path, 'ref_{}.txt'.format(stamp)), 'w') as rfd:
             rfd.write("\n".join(self.ref_str_bag))
 
-        rouges = test_rouge(self.temp_dir, os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp)),
+        rouges = test_rouge(self.temp_dir,
+                            os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp)),
                             os.path.join(self.ref_path, 'ref_{}.txt'.format(stamp)))
 
         rouge_str = rouge_results_to_str(rouges)
@@ -111,12 +119,14 @@ class PyrougeEvaluation(Metric):
     def reset(self):
         self.pred_str_bag = []
         self.ref_str_bag = []
+        print("Empty the bag!")
 
 
 def test_rouge(temp_dir, cand, ref):
     candidates = [line.strip() for line in open(cand, encoding='utf-8')]
     references = [line.strip() for line in open(ref, encoding='utf-8')]
     logging.info("Len of cand and ref {}\t{}".format(len(candidates), len(references)))
+    print("Len of cand and ref {}\t{}".format(len(candidates), len(references)))
     assert len(candidates) == len(references)
 
     cnt = len(candidates)

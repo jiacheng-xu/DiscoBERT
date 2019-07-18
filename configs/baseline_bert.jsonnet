@@ -3,19 +3,27 @@ local util = import "utils.libsonnet";
 local debug=true;
 
 
+//local cuda_device = 0;
+//local cuda_device = 1;
+local cuda_device = 2;
+//local cuda_device = 3;
+
+local multi_orac=false;
+local BATCH_SIZE=6;
+
+//local use_disco=false;
+local use_disco=false;
+
+local trigram_block=true;
 local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 9 else  888;
+local num_of_batch_per_train_epo= if debug then 22 else  588;
 local global_root = '/datadrive/GETSum';
 
 local root = '/datadrive/data/cnndm';
-//local cuda_device = 0;
-//local cuda_device = 1;
-//local cuda_device = 2;
-local cuda_device = 3;
 
-local use_disco=false;
-local pred_len_min=2;
-local pred_len_max=4;
+
+local min_pred_word=60;
+local max_pred_word=120;
 
 //local pred_len_min=5;
 //local pred_len_max=9;
@@ -24,7 +32,6 @@ local pred_len_max=4;
 
 local use_disco_graph = false;
 local use_coref=false;
-
 
 //local use_disco_graph = false;
 //local use_coref=true;
@@ -42,7 +49,7 @@ local test_data_path =root+'/test/';
 
 local bert_config=global_root+'/configs/BertSumConfig.json';
 
-local BATCH_SIZE=10;
+
 ####
 //local train_data_path = if debug then test_data_path else train_data_path;
 ###
@@ -61,13 +68,13 @@ local base_iterator_unlimit={
     type: 'basic',
 //    track_epoch: true,
 //    "sorting_keys": [["doc_text", "num_tokens"]],
-    batch_size: BATCH_SIZE+10,
+    batch_size: BATCH_SIZE*3,
   };
 local bert_model = "bert-base-uncased";
 local bert_vocab = global_root+"/bert_vocab";
 
 //local model_archive = "/datadrive/GETSum/tmp_expsx0o2m4hl";
-local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
+//local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
 
 //local model_archive = null;
 {
@@ -97,7 +104,8 @@ local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
         "type": "tensor_bert",
         "bert_model": bert_model,
         "bert_config_file":bert_config,
-        "bert_max_length":765,
+        "bert_max_length":768,
+        "multi_orac":multi_orac,
         "trainable":util.bert_trainable,
         "dropout":dropout,
         "graph_encoder":agg_func,
@@ -106,8 +114,11 @@ local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
         "use_disco_graph":use_disco_graph,
         "use_coref":use_coref,
         "span_extractor":util.SelfAttnSpan,
-         "min_pred_length":pred_len_min,       # 4 for cnn
-        "max_pred_length":pred_len_max,        # 6 for cnn
+        "trigram_block":trigram_block,
+        "min_pred_word":min_pred_word,
+        "max_pred_word":max_pred_word
+//         "min_pred_length":pred_len_min,       # 4 for cnn
+//        "max_pred_length":pred_len_max,        # 6 for cnn
     },
      "iterator":base_iterator,
 //     {type: 'multiprocess',

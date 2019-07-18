@@ -1,4 +1,6 @@
 import torch
+
+
 def extract_n_grams(inp_str, ngram: int = 3, connect_punc='_') -> set:
     inp_list = inp_str.split(" ")
     if len(inp_list) < 3:
@@ -9,11 +11,47 @@ def extract_n_grams(inp_str, ngram: int = 3, connect_punc='_') -> set:
         tmp.append(connect_punc.join(this))
     return set(tmp)
 
+
 def detect_nan(input_tensor) -> bool:
     if torch.sum(torch.isnan(input_tensor)) > 0:
         return True
     else:
         return False
+
+
+from typing import List
+
+
+def split_sentence_according_to_id(inp) -> List[List[int]]:
+    if len(inp) <= 1:
+        return [inp]
+    buff = [inp[0]]
+    output = []
+    for idx in range(1, len(inp)):
+        if buff == []:
+            buff.append(inp[idx])
+        elif inp[idx] - 2 > buff[-1]:
+            output.append(buff)
+            buff = [inp[idx]]
+        else:
+            buff.append(inp[idx])
+    if buff != []:
+        output.append(buff)
+    return output
+
+
+from typing import List
+
+
+def easy_post_processing(inp: List):
+    if len(inp) < 2:
+        return inp
+
+    if inp[-1] in ',;-=':
+        inp.pop(-1)
+    if inp[0] in ',;-=.!':
+        inp.pop(0)
+    return inp
 
 
 def flatten_2d_matrix_to_1d(two_dim_matrix, word_num):

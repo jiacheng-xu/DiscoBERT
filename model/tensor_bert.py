@@ -12,6 +12,9 @@ from allennlp.nn import RegularizerApplicator
 from allennlp.nn.initializers import InitializerApplicator
 from overrides import overrides
 from pytorch_pretrained_bert.modeling import BertModel
+from model.decoding_util import decode_entrance
+
+flatten = lambda l: [item for sublist in l for item in sublist]
 from torch.nn.functional import nll_loss
 import torch.nn as nn
 from torch import autograd
@@ -74,6 +77,8 @@ class Identity(GraphEncoder, torch.nn.Module, FromParams):
         # return self.ln.forward(sent_rep, sent_mask)
         return sent_rep
 
+
+from collections import deque
 
 from allennlp.modules.feedforward import FeedForward
 
@@ -182,7 +187,7 @@ class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
             output = conv(g, output)
             print(output)
         norm_output = self.ln(h + output)
-        print(norm_output)
+        # print(norm_output)
         # m = self._mlp(norm_output)
         # h = self.ln(norm_output + m)
         h = norm_output
@@ -206,16 +211,7 @@ from allennlp.modules.layer_norm import LayerNorm
 from allennlp.modules.masked_layer_norm import MaskedLayerNorm
 from allennlp.modules.span_extractors.span_extractor import SpanExtractor
 
-
-def easy_post_processing(inp: List):
-    if len(inp) < 2:
-        return inp
-
-    if inp[-1] in ',;-=':
-        inp.pop(-1)
-    if inp[0] in ',;-=':
-        inp.pop(0)
-    return inp
+from model.model_util import easy_post_processing
 
 
 @Model.register("tensor_bert")
@@ -224,6 +220,7 @@ class TensorBertSum(Model):
                  bert_model: Union[str, BertModel],
                  bert_config_file: str,
                  bert_max_length: int,
+                 multi_orac: bool,
                  graph_encoder: GraphEncoder,
                  span_extractor: SpanExtractor,
                  trainable: bool = True,
@@ -233,8 +230,13 @@ class TensorBertSum(Model):
                  index: str = "bert",
                  dropout: float = 0.2,
                  tmp_dir: str = '/datadrive/tmp/',
-                 min_pred_length: int = 6,
-                 max_pred_length: int = 9,
+                 use_pivot_decode: bool = False,
+                 trigram_block=True,
+                 min_pred_word: int = 30,
+                 max_pred_word: int = 80,
+                 step: int = 10,
+                 # min_pred_length: int = 6,
+                 # max_pred_length: int = 9,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         # super(TensorBertSum, self).__init__(vocab, regularizer)
@@ -245,10 +247,11 @@ class TensorBertSum(Model):
             self.bert_model = bert_model
         if bert_max_length > 512:
             out = self.bert_model.embeddings.position_embeddings.weight
-            out = torch.nn.functional.interpolate(torch.unsqueeze(out.permute((1,0),0),0), size=bert_max_length, mode='linear')
-            out= out.squeeze(0)
-            out = out.permute((1,0))
-            self.bert_model.embeddings.position_embeddings.weight = out
+            out = torch.nn.functional.interpolate(torch.unsqueeze(out.permute((1, 0), 0), 0), size=bert_max_length,
+                                                  mode='linear')
+            out = out.squeeze(0)
+            out = out.permute((1, 0))
+            self.bert_model.embeddings.position_embeddings.weight = torch.nn.Parameter(out)
         self.bert_model.config = BertConfig.from_json_file(bert_config_file)
         self._graph_encoder = graph_encoder
 
@@ -256,8 +259,8 @@ class TensorBertSum(Model):
             param.requires_grad = trainable
 
         in_features = self.bert_model.config.hidden_size
-        self._min_pred_len = min_pred_length
-        self._max_pred_len = max_pred_length
+        # self._min_pred_len = min_pred_length
+        # self._max_pred_len = max_pred_length
         self._index = index
         self._dropout = torch.nn.Dropout(p=dropout)
         self._classification_layer = torch.nn.Linear(in_features, 1)
@@ -265,9 +268,11 @@ class TensorBertSum(Model):
         # self._accuracy = CategoricalAccuracy()
         self._loss = torch.nn.BCELoss(reduction='none')
         self._layer_norm = MaskedLayerNorm(768)
-
+        self._multi_orac = multi_orac
         # ROUGES
-        for i in range(min_pred_length, max_pred_length):
+        slots = int((max_pred_word - min_pred_word) / step)
+        self.slot_num = slots
+        for i in range(slots):
             setattr(self, "rouge_{}".format(i),
                     PyrougeEvaluation(name='rouge_{}'.format(i), cand_path=tmp_dir, ref_path=tmp_dir,
                                       path_to_valid=tmp_dir))
@@ -282,6 +287,12 @@ class TensorBertSum(Model):
         self._use_disco_graph = use_disco_graph
         self._span_extractor = span_extractor
         self._use_coref = use_coref
+
+        self._trigram_block = trigram_block
+        self._use_pivot_decode = use_pivot_decode
+        self._min_pred_word = min_pred_word
+        self._max_pred_word = max_pred_word
+        self._step = step
 
     def transform_sent_rep(self, sent_rep, sent_mask):
         init_graphs = self._graph_encoder.convert_sent_tensors_to_graphs(sent_rep, sent_mask)
@@ -312,6 +323,7 @@ class TensorBertSum(Model):
             input_ids = tokens[self._index]
             input_mask = (input_ids != 0).long()
             segs = segs.long()
+            # print(input_ids.size())
             encoded_layers, _ = self.bert_model(input_ids=input_ids,
                                                 token_type_ids=segs,
                                                 attention_mask=input_mask)
@@ -329,7 +341,6 @@ class TensorBertSum(Model):
 
             else:
                 sent_rep, sent_mask = efficient_head_selection(top_vec, clss)
-
                 # sent_rep: batch size, sent num, bert hid dim
                 # sent_mask: batch size, sent num
                 encoder_output, encoder_output_msk = sent_rep, sent_mask
@@ -363,12 +374,21 @@ class TensorBertSum(Model):
 
             if label_to_use is not None:
                 # logits: batch size, sent num
-                # labels: batch size, sent num
+                # labels: batch size, oracle_num, sent num
                 # sent_mask: batch size, sent num
                 # flatten_scores = scores.view(batch_size * sent_num)
                 # flatten_labels = labels.view(batch_size * sent_num).float()
                 # print(scores)
                 # print(labels)
+                if self._multi_orac:
+                    seq_len = scores.size()[-1]
+                    scores = scores.unsqueeze(1)
+                    encoder_output_msk = encoder_output_msk.unsqueeze(1)
+                    scores = scores.expand_as(label_to_use).contiguous().view(-1, seq_len)
+                    encoder_output_msk = encoder_output_msk.expand_as(label_to_use).contiguous().view(-1, seq_len)
+                    label_to_use = label_to_use.view(-1, seq_len)
+                else:
+                    label_to_use = label_to_use[:, 0, :]
                 label_to_use = torch.nn.functional.relu(label_to_use)
                 raw_loss = self._loss(scores, label_to_use.float())
                 # print(loss.shape)
@@ -396,7 +416,11 @@ class TensorBertSum(Model):
             return output_dict
 
     @overrides
-    def decode(self, output_dict: Dict[str, torch.Tensor]):
+    def decode(self, output_dict: Dict[str, torch.Tensor],
+               trigram_block: bool = True,
+               use_pivot_decode: bool = False,
+               min_pred_word: int = 40, max_pred_word: int = 80, step=10
+               ):
         # probs: batch size, sent num, 2
         # masks: batch size, sent num [binary]
         scores = output_dict['scores']
@@ -410,44 +434,90 @@ class TensorBertSum(Model):
         tuned_probs = tuned_probs.cpu().data.numpy()
 
         batch_size, sent_num = masks.shape
-
+        slots = int((max_pred_word - min_pred_word) / step)
         for b in range(batch_size):
-            this_meta = meta[b]
-            if self._use_disco:
-                src = this_meta['disco_txt']
-            else:
-                src = this_meta['sent_txt']
-            tgt = this_meta['tgt_txt']
-            tgt_as_list = tgt.split('<q>')
-            this_prob = tuned_probs[b]
-            sel_indexs = np.argsort(-this_prob)
+            pred_word_list_strs, tgt_str = decode_entrance(tuned_probs[b], meta[b], self._use_disco,
+                                                           trigram_block, use_pivot_decode, min_pred_word,
+                                                           max_pred_word, step
+                                                           )
 
-            trigrams = set()
-            # predictions = [[] for l in range(self._min_pred_len, self._max_pred_len)]
-            predictions = []
+            # continue
+            # this_meta = meta[b]
+            # this_prob = tuned_probs[b]
+            # if self._use_disco:
+            #     src = this_meta['disco_txt']
+            #     dep = this_meta['disco_dep']
+            #     # resolve dep
+            #
+            #     for _d in dep:
+            #         source_node, tgt_node = _d
+            #         if source_node == tgt_node:
+            #             continue
+            #         if source_node in dic:
+            #             dic[source_node] = list(set(dic[source_node] + [tgt_node]))
+            #         else:
+            #             dic[source_node] = [tgt_node]
+            # else:
+            #
+            #     src = this_meta['sent_txt']
+            #
+            # tgt = this_meta['tgt_txt']
+            # tgt_as_list = tgt.split('<q>')
+            #
+            # sel_indexes = np.argsort(-this_prob)
+            #
+            # trigrams = set()
+            # # predictions = [[] for l in range(self._min_pred_len, self._max_pred_len)]
+            # predictions = []
             # predictions_idx = []
-            for sel_i in sel_indexs:
-                try:
-                    candidate = src[sel_i]
-                    cand_trigram = extract_n_grams(" ".join(candidate))
-                    if trigrams.isdisjoint(cand_trigram):
-                        predictions.append(" ".join(easy_post_processing(candidate)))
-                        # predictions_idx.append(sel_i)
-                        trigrams.update(cand_trigram)
-                except IndexError:
-                    logger.warning("Index Error\n{}".format(src))
-                    # print("Index Error\n{}\n{}".format(this_meta['src_txt'], sel_indexs))
-                    continue
-                if len(predictions) >= self._max_pred_len:
-                    break
+            #
+            # hoop_cnt = 0
+            # for sel_i in sel_indexes:
+            #     hoop_cnt += 1
+            #     try:
+            #         if self._use_disco:
+            #             final_list = []
+            #             q = deque()
+            #             q.append(sel_i)
+            #             while len(q) > 0:
+            #                 ele = q.popleft()
+            #                 final_list.append(ele)
+            #                 if ele in dic:
+            #                     [q.append(x) for x in dic[ele] if (x not in final_list) and (x not in predictions_idx)]
+            #             final_list = list(set(final_list))
+            #             final_list.sort()
+            #             final_list = [x for x in final_list if x not in predictions_idx]  # delta
+            #             candidate = flatten([src[item] for item in final_list])
+            #             if random.random() < 0.001:
+            #                 print(candidate)
+            #         else:
+            #             final_list = [sel_i]
+            #             final_list = [x for x in final_list if x not in predictions_idx]
+            #             candidate = [src[item] for item in final_list]
+            #         if final_list == []:
+            #             continue
+            #         cand_trigram = extract_n_grams(" ".join(candidate))
+            #         if trigrams.isdisjoint(cand_trigram):
+            #             predictions.append(" ".join(easy_post_processing(candidate)))
+            #             predictions_idx += final_list
+            #             trigrams.update(cand_trigram)
+            #     except IndexError:
+            #         logger.warning("Index Error\n{}".format(src))
+            #         # print("Index Error\n{}\n{}".format(this_meta['src_txt'], sel_indexs))
+            #         continue
+            #     if len(predictions) >= self._max_pred_len:
+            #         break
+            #     if hoop_cnt > 20:
+            #         break
             # if random.random() < 0.01:
             #     print("\n".join(predictions))
             #     print(tgt)
             # print(tgt_as_list)
             # print(predictions)
             # print(tgt)
-            for l in range(self._min_pred_len, self._max_pred_len):
-                getattr(self, 'rouge_{}'.format(l))(pred="<q>".join(predictions[:l]), ref=tgt)
+            for l in range(slots):
+                getattr(self, 'rouge_{}'.format(l))(pred="<q>".join(pred_word_list_strs[l]),
+                                                    ref=tgt_str)
             # self._rouge(pred="<q>".join(predictions), ref=tgt)
         return output_dict
 
@@ -456,7 +526,8 @@ class TensorBertSum(Model):
         dict_of_rouge = {}
         # print(reset)
         if reset:
-            obj_list = [(getattr(self, 'rouge_{}'.format(l)),) for l in range(self._min_pred_len, self._max_pred_len)]
+            obj_list = [(getattr(self, 'rouge_{}'.format(l)),) for l in range(self.slot_num)]
+
             # print("start testing")
             pool = multiprocessing.Pool(processes=10)
             results = pool.starmap(run_eval_worker, obj_list)
@@ -468,7 +539,7 @@ class TensorBertSum(Model):
             #     _d = getattr(self, 'rouge_{}'.format(l)).get_metric(reset)
             #     dict_of_rouge = {**dict_of_rouge, **_d}
         else:
-            for l in range(self._min_pred_len, self._max_pred_len):
+            for l in range(self.slot_num):
                 _d = getattr(self, 'rouge_{}'.format(l)).get_metric(reset)
                 dict_of_rouge = {**dict_of_rouge, **_d}
 
