@@ -539,6 +539,8 @@ def tokenize(raw_path, save_path, snlp='/datadrive/stanford-corenlp-full-2018-10
     print("{} out of {} files processed".format(len(exist_files), len(stories)))
     todo_files = list(set(stories) - set(exist_files))
     stories = todo_files
+    import random
+    random.shuffle(stories)
     print("Stories like: {}".format(stories[0]))
     # make IO list file
     print("Making list of files to tokenize...")
@@ -614,11 +616,18 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
     if not os.path.exists(save_path):
         os.mkdir(save_path)
         print("Creating {}".format(save_path))
+
     corpus_mapping = {}
     for corpus_type in ['valid', 'test', 'train']:
         temp = []
-        for line in open(pjoin(map_urls_path, 'mapping_' + corpus_type + '.txt')):
-            temp.append(hashhex(line.strip()))
+        if 'nyt' in map_urls_path:# if you want to add new key , here
+            for line in open(pjoin(map_urls_path, 'mapping_' + corpus_type + '.txt')):
+                temp.append(line.strip())
+            print("Examples: {}".format(temp[0]))
+        else:
+            for line in open(pjoin(map_urls_path, 'mapping_' + corpus_type + '.txt')):
+                temp.append(hashhex(line.strip()))
+            print("Examples: {}".format(temp[0]))
         corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
 
     train_files, valid_files, test_files = [], [], []

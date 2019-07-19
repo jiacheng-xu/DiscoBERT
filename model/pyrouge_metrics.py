@@ -119,7 +119,7 @@ class PyrougeEvaluation(Metric):
     def reset(self):
         self.pred_str_bag = []
         self.ref_str_bag = []
-        print("Empty the bag!")
+        # print("Empty the bag!")
 
 
 def test_rouge(temp_dir, cand, ref):

@@ -94,6 +94,9 @@ def std_decode(sel_indexes, use_disco, source_txt, dependency_dict,
         if pred_word == [] and idx > 0:
             pred_word_lists[idx] = pred_word_lists[idx - 1]
             pred_indexes_lists[idx] = pred_indexes_lists[idx - 1]
+        elif pred_word == [] and idx < len(pred_word_lists)-1:
+            pred_word_lists[idx] = pred_word_lists[idx +1]
+            pred_indexes_lists[idx] = pred_indexes_lists[idx + 1]
     pred_word_strs_list = [[] for _ in range(num_slots)]
     # split sentences
     for idx, pred in enumerate(pred_indexes_lists):

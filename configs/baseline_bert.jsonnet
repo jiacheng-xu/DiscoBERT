@@ -1,29 +1,32 @@
 local util = import "utils.libsonnet";
 
-local debug=true;
+local debug=false;
 
 
 //local cuda_device = 0;
-//local cuda_device = 1;
-local cuda_device = 2;
+local cuda_device = 1;
+//local cuda_device = 2;
 //local cuda_device = 3;
 
 local multi_orac=false;
-local BATCH_SIZE=6;
+//local multi_orac=true;
 
+local BATCH_SIZE=5;
+
+local use_disco=true;
 //local use_disco=false;
-local use_disco=false;
 
 local trigram_block=true;
-local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 22 else  588;
-local global_root = '/datadrive/GETSum';
+//local trigram_block=false;
 
+local dropout=0.2;
+local num_of_batch_per_train_epo= if debug then 22 else  2088;
+local global_root = '/datadrive/GETSum';
 local root = '/datadrive/data/cnndm';
 
 
-local min_pred_word=60;
-local max_pred_word=120;
+local min_pred_word=50;
+local max_pred_word=90;
 
 //local pred_len_min=5;
 //local pred_len_max=9;
@@ -68,7 +71,7 @@ local base_iterator_unlimit={
     type: 'basic',
 //    track_epoch: true,
 //    "sorting_keys": [["doc_text", "num_tokens"]],
-    batch_size: BATCH_SIZE*3,
+    batch_size: BATCH_SIZE*12,
   };
 local bert_model = "bert-base-uncased";
 local bert_vocab = global_root+"/bert_vocab";
@@ -154,7 +157,7 @@ local bert_vocab = global_root+"/bert_vocab";
         "num_serialized_models_to_keep": 3,
         "num_epochs": 40,
 //        "grad_norm": 10.0,
-        "patience": 10,
+        "patience": 5,
         "cuda_device": cuda_device,
         "grad_clipping":5,
 //        "learning_rate_scheduler":{

@@ -15,6 +15,7 @@ class MSBertData():
         self.min_nsents = min_nsents
         self.max_nsents = max_nsents
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
+        self.tokenizer.max_len = 768
         self.sep_vid = self.tokenizer.vocab['[SEP]']
         self.cls_vid = self.tokenizer.vocab['[CLS]']
         self.pad_vid = self.tokenizer.vocab['[PAD]']

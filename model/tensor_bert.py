@@ -411,15 +411,15 @@ class TensorBertSum(Model):
             # print(param.grad[0])
             ##
             type = meta_field[0]['type']
+            # print(len(self.rouge_0.pred_str_bag))
             if type == 'valid' or type == 'test':
-                output_dict = self.decode(output_dict)
+                output_dict = self.decode(output_dict, trigram_block=self._trigram_block)
             return output_dict
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor],
                trigram_block: bool = True,
                use_pivot_decode: bool = False,
-               min_pred_word: int = 40, max_pred_word: int = 80, step=10
                ):
         # probs: batch size, sent num, 2
         # masks: batch size, sent num [binary]
@@ -434,88 +434,15 @@ class TensorBertSum(Model):
         tuned_probs = tuned_probs.cpu().data.numpy()
 
         batch_size, sent_num = masks.shape
-        slots = int((max_pred_word - min_pred_word) / step)
+        # slots = int((max_pred_word - min_pred_word) / step)
         for b in range(batch_size):
             pred_word_list_strs, tgt_str = decode_entrance(tuned_probs[b], meta[b], self._use_disco,
-                                                           trigram_block, use_pivot_decode, min_pred_word,
-                                                           max_pred_word, step
+                                                           trigram_block,
+                                                           use_pivot_decode, self._min_pred_word,
+                                                           self._max_pred_word,
+                                                           self._step
                                                            )
-
-            # continue
-            # this_meta = meta[b]
-            # this_prob = tuned_probs[b]
-            # if self._use_disco:
-            #     src = this_meta['disco_txt']
-            #     dep = this_meta['disco_dep']
-            #     # resolve dep
-            #
-            #     for _d in dep:
-            #         source_node, tgt_node = _d
-            #         if source_node == tgt_node:
-            #             continue
-            #         if source_node in dic:
-            #             dic[source_node] = list(set(dic[source_node] + [tgt_node]))
-            #         else:
-            #             dic[source_node] = [tgt_node]
-            # else:
-            #
-            #     src = this_meta['sent_txt']
-            #
-            # tgt = this_meta['tgt_txt']
-            # tgt_as_list = tgt.split('<q>')
-            #
-            # sel_indexes = np.argsort(-this_prob)
-            #
-            # trigrams = set()
-            # # predictions = [[] for l in range(self._min_pred_len, self._max_pred_len)]
-            # predictions = []
-            # predictions_idx = []
-            #
-            # hoop_cnt = 0
-            # for sel_i in sel_indexes:
-            #     hoop_cnt += 1
-            #     try:
-            #         if self._use_disco:
-            #             final_list = []
-            #             q = deque()
-            #             q.append(sel_i)
-            #             while len(q) > 0:
-            #                 ele = q.popleft()
-            #                 final_list.append(ele)
-            #                 if ele in dic:
-            #                     [q.append(x) for x in dic[ele] if (x not in final_list) and (x not in predictions_idx)]
-            #             final_list = list(set(final_list))
-            #             final_list.sort()
-            #             final_list = [x for x in final_list if x not in predictions_idx]  # delta
-            #             candidate = flatten([src[item] for item in final_list])
-            #             if random.random() < 0.001:
-            #                 print(candidate)
-            #         else:
-            #             final_list = [sel_i]
-            #             final_list = [x for x in final_list if x not in predictions_idx]
-            #             candidate = [src[item] for item in final_list]
-            #         if final_list == []:
-            #             continue
-            #         cand_trigram = extract_n_grams(" ".join(candidate))
-            #         if trigrams.isdisjoint(cand_trigram):
-            #             predictions.append(" ".join(easy_post_processing(candidate)))
-            #             predictions_idx += final_list
-            #             trigrams.update(cand_trigram)
-            #     except IndexError:
-            #         logger.warning("Index Error\n{}".format(src))
-            #         # print("Index Error\n{}\n{}".format(this_meta['src_txt'], sel_indexs))
-            #         continue
-            #     if len(predictions) >= self._max_pred_len:
-            #         break
-            #     if hoop_cnt > 20:
-            #         break
-            # if random.random() < 0.01:
-            #     print("\n".join(predictions))
-            #     print(tgt)
-            # print(tgt_as_list)
-            # print(predictions)
-            # print(tgt)
-            for l in range(slots):
+            for l in range(self.slot_num):
                 getattr(self, 'rouge_{}'.format(l))(pred="<q>".join(pred_word_list_strs[l]),
                                                     ref=tgt_str)
             # self._rouge(pred="<q>".join(predictions), ref=tgt)
@@ -532,6 +459,8 @@ class TensorBertSum(Model):
             pool = multiprocessing.Pool(processes=10)
             results = pool.starmap(run_eval_worker, obj_list)
 
+            for l in range(self.slot_num):
+                getattr(self, 'rouge_{}'.format(l)).reset()
             for r in results:
                 dict_of_rouge = {**dict_of_rouge, **r}
             # for i in pool.imap_unordered(f, range(10)):
