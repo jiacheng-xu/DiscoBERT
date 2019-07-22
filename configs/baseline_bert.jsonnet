@@ -4,29 +4,36 @@ local debug=false;
 
 
 //local cuda_device = 0;
-local cuda_device = 1;
+//local cuda_device = 1;
 //local cuda_device = 2;
-//local cuda_device = 3;
+local cuda_device = 3;
+
+local bertsum_oracle=false;
 
 local multi_orac=false;
 //local multi_orac=true;
 
-local BATCH_SIZE=5;
+local BATCH_SIZE=6;
 
-local use_disco=true;
-//local use_disco=false;
+//local use_disco=true;
+local use_disco=false;
 
 local trigram_block=true;
 //local trigram_block=false;
 
 local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 22 else  2088;
+local num_of_batch_per_train_epo= if debug then 22 else  1088;
+
+
+//local global_root = '/scratch/cluster/jcxu/GETSum';
+//local root = '/scratch/cluster/jcxu/dailymail';
+
 local global_root = '/datadrive/GETSum';
 local root = '/datadrive/data/cnndm';
 
 
-local min_pred_word=50;
-local max_pred_word=90;
+local min_pred_word=40;
+local max_pred_word=140;
 
 //local pred_len_min=5;
 //local pred_len_max=9;
@@ -86,6 +93,7 @@ local bert_vocab = global_root+"/bert_vocab";
         "lazy": true,
         "type": "cnndm",
         "debug":debug,
+        "bertsum_oracle":bertsum_oracle,
         "bert_model_name": "bert-base-uncased",
         "token_indexers": {
             "bert": {
@@ -155,7 +163,7 @@ local bert_vocab = global_root+"/bert_vocab";
         "keep_serialized_model_every_num_seconds":30*60,
         "validation_metric": "+R_1",
         "num_serialized_models_to_keep": 3,
-        "num_epochs": 40,
+        "num_epochs": 50,
 //        "grad_norm": 10.0,
         "patience": 5,
         "cuda_device": cuda_device,

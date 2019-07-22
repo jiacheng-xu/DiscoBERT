@@ -793,12 +793,11 @@ class Rouge155(object):
         return os.path.join(config_dir, 'settings.ini')
 
 #
-# if __name__ == "__main__":
-#     import argparse
-#     from utils.argparsers import rouge_path_parser
-#
-#     parser = argparse.ArgumentParser(parents=[rouge_path_parser])
-#     args = parser.parse_args()
-#
-#     rouge = Rouge155(args.rouge_home)
-#     rouge.save_home_dir()
+if __name__ == "__main__":
+
+    with open(os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp)), 'w') as wfd:
+        wfd.write("\n".join(self.pred_str_bag))
+
+    with open(os.path.join(self.ref_path, 'ref_{}.txt'.format(stamp)), 'w') as rfd:
+        rfd.write("\n".join(self.ref_str_bag))
+    test_rouge()

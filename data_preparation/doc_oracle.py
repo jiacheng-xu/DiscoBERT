@@ -97,7 +97,7 @@ class DocumentOracleDerivation(object):
 
         target_ref_sum_list = [x for x in processed_ref_sum_list if x not in processed_prefix_sum_list]
 
-        # try
+        # TODO
         f_score_list, score_matrix = self.iter_rouge(processed_doc_list, target_ref_sum_list)
 
         # preprocessing finished
@@ -301,7 +301,7 @@ class DocumentOracleDerivation(object):
 
         rouge_1 = cal_rouge(pred_unigram, gold_unigram, len_pred, len_gold)['f']
         rouge_2 = cal_rouge(pred_bigram, gold_bigram, len_pred, len_gold)['f']
-        rouge_score = (rouge_1 + rouge_2 * 2) / 2
+        rouge_score = (rouge_1 + rouge_2 ) / 2
         return rouge_score
 
     def pre_prune(self, list_of_doc: List[List[str]],

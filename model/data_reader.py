@@ -17,6 +17,8 @@ from allennlp.modules.token_embedders.bert_token_embedder import BertEmbedder
 import sys
 import numpy
 
+from data_preparation.search_algo import original_greedy_selection
+
 numpy.set_printoptions(threshold=sys.maxsize)
 import string
 from allennlp.common.util import START_SYMBOL, END_SYMBOL
@@ -27,6 +29,21 @@ from typing import Dict, Optional, List, Any
 
 from overrides import overrides
 import dgl
+
+
+def label_filter(labs):
+    rt_list = []
+    cur_min_cnt = 100
+    for l in labs:
+        s = sum(l)
+        if s < cur_min_cnt:
+            cur_min_cnt = s
+            rt_list.insert(0, l)
+        else:
+            rt_list.append(l)
+    return rt_list
+    pass
+
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 import numpy as np
@@ -88,10 +105,11 @@ class CNNDMDatasetReader(DatasetReader):
                  bert_model_name: str = 'bert-base-uncased',
                  token_indexers: Dict[str, TokenIndexer] = PretrainedBertIndexer("bert-base-uncased"),
                  debug: bool = False,
+                 bertsum_oracle: bool = True,
                  ) -> None:
         super().__init__(lazy=lazy)
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
-        self._token_indexers['bert'].max_pieces=1024
+        self._token_indexers['bert'].max_pieces = 1024
         self._debug = debug
         self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
         # self.bert_tokenizer = WordTokenizer(word_splitter=BertBasicWordSplitter())
@@ -101,6 +119,7 @@ class CNNDMDatasetReader(DatasetReader):
         self.bert_lut = [x[0] for x in self.bert_lut]
 
         self.train_pts = []
+        self.bertsum_oracle = bertsum_oracle
         random.seed(112312)
 
     def refill_data(self, fpath):
@@ -250,11 +269,21 @@ class CNNDMDatasetReader(DatasetReader):
         # tokens1 = self.bert_tokenizer.tokenize(sentence1)
         # text_tokens = tokens1
         # text_tokens = TextField(text_tokens, {"bert": self._token_indexers})
-
+        if self.bertsum_oracle:
+            _tgt = tgt_txt.split('<q>')
+            _tgt = [x.split(" ") for x in _tgt]
+            labels = original_greedy_selection(sent_txt, _tgt, 3)
+            z = np.zeros((1, len(sent_txt)))
+            for l in labels:
+                z[0][l] = 1
+            labels = z
+        else:
+            labels = label_filter(labels)
         labels = ArrayField(np.asarray(labels), padding_value=-1, dtype=np.int)
         segs = ArrayField(np.asarray(segs), padding_value=0, dtype=np.int)  # TODO -1 or 0?
         clss = ArrayField(np.asarray(clss), padding_value=-1, dtype=np.int)
 
+        disco_label = label_filter(disco_label)
         disco_label = ArrayField(np.asarray(disco_label), padding_value=-1, dtype=np.int)
         disco_span = ArrayField(np.asarray(disco_span), padding_value=-1, dtype=np.int)
 
@@ -302,7 +331,7 @@ class CNNDMDatasetReader(DatasetReader):
             "disco_txt": disco_txt,
             "tgt_txt": tgt_txt,
             'disco_dep': disco_dep,
-            'doc_id':doc_id
+            'doc_id': doc_id
 
             # "coref_graph": coref_graph
         })

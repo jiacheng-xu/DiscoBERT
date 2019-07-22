@@ -56,10 +56,10 @@ def combination_selection(doc_sent_list, abstract_sent_list, summary_size):
     return sorted(list(max_idx))
 
 
-def greedy_selection(doc_sent_list, abstract_sent_list, summary_size):
+def original_greedy_selection(doc_sent_list, abstract_sent_list, summary_size):
     def _rouge_clean(s):
         return re.sub(r'[^a-zA-Z0-9 ]', '', s)
-
+    from data_preparation.nlpyang_data_builder import cal_rouge
     max_rouge = 0.0
     abstract = sum(abstract_sent_list, [])
     abstract = _rouge_clean(' '.join(abstract)).split()

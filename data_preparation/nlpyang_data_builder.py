@@ -17,6 +17,26 @@ from data_preparation.nlpyang_others_logging import logger
 from data_preparation.nlpyang_others_utils import clean
 from data_preparation.nlpyang_utils import _get_word_ngrams
 
+def cal_rouge(evaluated_ngrams, reference_ngrams):
+    reference_count = len(reference_ngrams)
+    evaluated_count = len(evaluated_ngrams)
+
+    overlapping_ngrams = evaluated_ngrams.intersection(reference_ngrams)
+    overlapping_count = len(overlapping_ngrams)
+
+    if evaluated_count == 0:
+        precision = 0.0
+    else:
+        precision = overlapping_count / evaluated_count
+
+    if reference_count == 0:
+        recall = 0.0
+    else:
+        recall = overlapping_count / reference_count
+
+    f1_score = 2.0 * ((precision * recall) / (precision + recall + 1e-8))
+    return {"f": f1_score, "p": precision, "r": recall}
+
 """
 bf3dd673d72edf70f431bb3a638a3cc124a3c3ae.story.doc.merge 
 7       1       The     the     DT      det     3       O        (ROOT (S (NP (DT The)  21

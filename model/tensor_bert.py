@@ -246,12 +246,19 @@ class TensorBertSum(Model):
         else:
             self.bert_model = bert_model
         if bert_max_length > 512:
-            out = self.bert_model.embeddings.position_embeddings.weight
-            out = torch.nn.functional.interpolate(torch.unsqueeze(out.permute((1, 0), 0), 0), size=bert_max_length,
-                                                  mode='linear')
-            out = out.squeeze(0)
-            out = out.permute((1, 0))
+            first_half = self.bert_model.embeddings.position_embeddings.weight
+            ts = torch.zeros_like(first_half, dtype=torch.float32)
+            second_half = ts.new_tensor(first_half, requires_grad=True)
+            # print(out.size())
+            # exit()
+            # out = torch.nn.functional.interpolate(torch.unsqueeze(out.permute((1, 0), 0), 0), size=bert_max_length,
+            #                                       mode='linear')
+            # out = out.squeeze(0)
+            # out = out.permute((1, 0))
+            out = torch.cat([first_half, second_half], dim=0)
             self.bert_model.embeddings.position_embeddings.weight = torch.nn.Parameter(out)
+            self.bert_model.embeddings.position_embeddings.num_embeddings = 512*2
+
         self.bert_model.config = BertConfig.from_json_file(bert_config_file)
         self._graph_encoder = graph_encoder
 

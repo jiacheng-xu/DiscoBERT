@@ -74,7 +74,8 @@ def std_decode(sel_indexes, use_disco, source_txt, dependency_dict,
                         trigrams.update(cand_trigram)
                     # else:
                     #     print("traigram blocked")
-
+                    #     print("Candiate:{}".format(cand_trigram))
+                    #     print("Exsit:{}".format(trigrams))
                 all_candidate = list(set(non_overlap_candidate).union(set(current_indexes)))
                 all_candidate.sort()
                 new_candidate = all_candidate
