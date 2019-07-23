@@ -4,7 +4,7 @@ optimizer:"bert_adam",
 lr:1e-5,
 warmup:0.1,
 iden : {type:"identity"},
-gcn:{type:"gcn", input_dims:[768], num_layers:1,hidden_dims:[768]},
+gcn:{type:"gcn", hdim:768},
 lstm:{type:"seq2seq",
     "seq2seq_encoder":{
      "type":"lstm",

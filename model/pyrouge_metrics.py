@@ -794,10 +794,7 @@ class Rouge155(object):
 
 #
 if __name__ == "__main__":
-
-    with open(os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp)), 'w') as wfd:
-        wfd.write("\n".join(self.pred_str_bag))
-
-    with open(os.path.join(self.ref_path, 'ref_{}.txt'.format(stamp)), 'w') as rfd:
-        rfd.write("\n".join(self.ref_str_bag))
-    test_rouge()
+    p =tempfile.mkdtemp(prefix='/datadrive/tmp/')
+    x = test_rouge(p,'/datadrive/tmp/cand.txt',
+               '/datadrive/tmp/ref.txt')
+    print(x)

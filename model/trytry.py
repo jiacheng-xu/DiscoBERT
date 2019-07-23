@@ -4,16 +4,40 @@ from data_preparation.data_structure import MSBertData
 from data_preparation.my_format_to_bert import DiscourseUnit, SentUnit
 from data_preparation.nlpyang_others_utils import clean
 import random
+
+def merge_shuffle_pt(path):
+    os.chdir(path)
+    files = os.listdir(path)
+    all_dataset = []
+    for file in files:
+        dataset = torch.load(os.path.join(file))
+        all_dataset += dataset
+
+    random.shuffle(all_dataset)
+    name = "cnndm.train.{}.bert.pt"
+
 if __name__ == '__main__':
     # dataset = torch.load(os.path.join('/datadrive/data/cnndm/test', 'dailymail.test.1.bert.pt'))
     # for d in dataset:
     #     print(d)
     import json
-    path = '/datadrive/data/dailymail/chunk'
-    file = 'dailymail.train.13.json'
-    jobs = json.load(open(os.path.join(path,file)))
+
+    # from nltk.tokenize.stanford import StanfordTokenizer
+    from nltk.tokenize import TweetTokenizer
+
+    tknzr = TweetTokenizer()
+    s = "Good muffins cost $3.88\nin New York.  Please buy me\ntwo of them.\nThanks."
+    s= "craze has taken off thanks to owners posting pictures on social media<q>initial idea was to give the pets a more eye-grabbing and clean-cut look<q>one dog salon worker in taipei has insisted that 'the dogs do n't mind '"
+    print(tknzr.tokenize(s))
+    exit()
+    path = '/datadrive/data/cnndm/train'
+    os.chdir(path)
+
+    file = 'dailymail.train.141.bert.pt'
+    dataset = torch.load(os.path.join(file))
+    # jobs = json.load(open(os.path.join(path,file)))
     print(len(jobs))
-    random.shuffle(jobs)
+
     length_limit = 512
     jobs = jobs[:100]
     bert_data = MSBertData(5, 5, 5, 5)

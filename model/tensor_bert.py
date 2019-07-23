@@ -7,11 +7,13 @@ from allennlp.commands.train import train_model
 from allennlp.common import Params
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models.model import Model
-from allennlp.modules.token_embedders.bert_token_embedder import PretrainedBertModel
+from allennlp.modules.token_embedders.bert_token_embedder import PretrainedBertModel, PretrainedBertEmbedder
 from allennlp.nn import RegularizerApplicator
 from allennlp.nn.initializers import InitializerApplicator
 from overrides import overrides
 from pytorch_pretrained_bert.modeling import BertModel
+
+from model.archival_gnns import GraphEncoder
 from model.decoding_util import decode_entrance
 
 flatten = lambda l: [item for sublist in l for item in sublist]
@@ -19,7 +21,7 @@ from torch.nn.functional import nll_loss
 import torch.nn as nn
 from torch import autograd
 from allennlp.common import FromParams
-from utility.learn_dgl import GCN
+from model.gcn import GCN_layers
 from allennlp.modules.encoder_base import _EncoderBase
 from allennlp.common import Registrable
 from model.data_reader import CNNDMDatasetReader
@@ -38,17 +40,6 @@ from model.model_util import *
 
 def run_eval_worker(obj):
     return obj.get_metric(True)
-
-
-class GraphEncoder(_EncoderBase, Registrable):
-    def get_input_dim(self) -> int:
-        raise NotImplementedError
-
-    def get_output_dim(self) -> int:
-        raise NotImplementedError
-
-    def is_bidirectional(self):
-        raise NotImplementedError
 
 
 from allennlp.modules.seq2seq_encoders.seq2seq_encoder import Seq2SeqEncoder
@@ -81,131 +72,6 @@ class Identity(GraphEncoder, torch.nn.Module, FromParams):
 from collections import deque
 
 from allennlp.modules.feedforward import FeedForward
-
-
-@GraphEncoder.register("easy_graph_encoder")
-class EasyGraph(GraphEncoder, torch.nn.Module, FromParams):
-    def __init__(self,
-                 input_dim: int,
-                 num_layers: int,
-                 hidden_dims: Union[int, List[int]],
-                 dropout=0.1):
-        super().__init__()
-
-        if not isinstance(hidden_dims, list):
-            hidden_dims = [hidden_dims] * num_layers
-        if not isinstance(dropout, list):
-            dropout = [dropout] * num_layers  # type: ignore
-
-        self._activations = [torch.nn.functional.relu] * num_layers
-        input_dims = [input_dim] + hidden_dims[:-1]
-        linear_layers = []
-        for layer_input_dim, layer_output_dim in zip(input_dims, hidden_dims):
-            linear_layers.append(torch.nn.Linear(layer_input_dim, layer_output_dim))
-        self._linear_layers = torch.nn.ModuleList(linear_layers)
-        dropout_layers = [torch.nn.Dropout(p=value) for value in dropout]
-        self._dropout = torch.nn.ModuleList(dropout_layers)
-        self._output_dim = hidden_dims[-1]
-
-        self.lin = torch.nn.Linear(self._output_dim, self._output_dim)
-        self.ln = MaskedLayerNorm(size=hidden_dims[0])
-
-    def transform_sent_rep(self, sent_rep, sent_mask, graphs):
-        # LayerNorm(x + Sublayer(x))
-        output = sent_rep
-
-        for layer, activation, dropout in zip(self._linear_layers, self._activations, self._dropout):
-            mid = layer(output)  # output: batch, seq, feat
-            mid = mid.permute(0, 2, 1)  # mid: batch, feat, seq
-
-            nex = torch.bmm(mid, graphs)
-            output = dropout(activation(nex))
-            output = output.permute(0, 2, 1)  # mid: batch, seq, feat
-        middle = sent_rep + self.lin(output)
-        output = self.ln.forward(middle, sent_mask)
-        return output
-
-
-@GraphEncoder.register("gcn")
-class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
-
-    def __init__(self, input_dims: List[int],
-                 num_layers: int,
-                 hidden_dims: Union[int, List[int]],
-                 activations='relu'):
-        super(GCN_layers, self).__init__()
-        if not isinstance(hidden_dims, list):
-            hidden_dims = [hidden_dims] * num_layers
-        # TODO remove hard code relu
-        activations = [torch.nn.functional.tanh] * num_layers
-        assert len(input_dims) == len(hidden_dims) == len(activations) == num_layers
-        gcn_layers = []
-        for layer_input_dim, layer_output_dim, activate in zip(input_dims, hidden_dims, activations):
-            gcn_layers.append(GCN(layer_input_dim, layer_output_dim, activate))
-        self.layers = nn.ModuleList(gcn_layers)
-        self._output_dim = hidden_dims[-1]
-        self.input_dim = input_dims[0]
-        self.ln = LayerNorm(hidden_dims[0])
-        self._mlp = FeedForward(hidden_dims[0], 1, hidden_dims[0], torch.nn.functional.sigmoid)
-
-    def transform_sent_rep(self, sent_rep, sent_mask):
-        init_graphs = self.convert_sent_tensors_to_graphs(sent_rep, sent_mask)
-        unpadated_graphs = []
-        for g in init_graphs:
-            updated_graph = self.forward(g)
-            unpadated_graphs.append(updated_graph)
-        recovered_sent = torch.stack(unpadated_graphs, dim=0)
-        assert recovered_sent.shape == sent_rep.shape
-        return recovered_sent
-
-    def convert_sent_tensors_to_graphs(self, sent, sent_mask):
-        batch_size, max_sent_num, hdim = sent.shape
-        effective_length = torch.sum(sent_mask, dim=1).long().tolist()
-        graph_bag = []
-        for b in range(batch_size):
-            this_sent = sent[b]  # max_sent, hdim
-            # this_mask = sent_mask[b]
-            this_len = effective_length[b]
-
-            G = dgl.DGLGraph()
-            G.add_nodes(max_sent_num)
-            fc_src = [i for i in range(this_len)] * this_len
-            fc_tgt = [[i] * this_len for i in range(this_len)]
-            fc_tgt = list(itertools.chain.from_iterable(fc_tgt))
-
-            G.add_edges(fc_src, fc_tgt)
-            G.ndata['h'] = this_sent  # every node has the parameter
-            graph_bag.append(G)
-        return graph_bag
-
-    @overrides
-    def forward(self, g):
-        # h = g.in_degrees().view(-1, 1).float()
-        h = g.ndata['h']
-        output = h
-        for conv in self.layers:
-            output = conv(g, output)
-            print(output)
-        norm_output = self.ln(h + output)
-        # print(norm_output)
-        # m = self._mlp(norm_output)
-        # h = self.ln(norm_output + m)
-        h = norm_output
-        g.ndata['h'] = h
-        hg = dgl.mean_nodes(g, 'h')
-        # return g, g.ndata['h'], hg  # g is the raw graph, h is the node rep, and hg is the mean of all h
-        return g.ndata['h']
-
-    def get_input_dim(self) -> int:
-        return self.input_dim
-
-    def get_output_dim(self) -> int:
-        return self._output_dim
-
-    @overrides
-    def is_bidirectional(self):
-        return False
-
 
 from allennlp.modules.layer_norm import LayerNorm
 from allennlp.modules.masked_layer_norm import MaskedLayerNorm
@@ -241,10 +107,31 @@ class TensorBertSum(Model):
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         # super(TensorBertSum, self).__init__(vocab, regularizer)
         super(TensorBertSum, self).__init__(vocab)
+
+        self.embedder = PretrainedBertEmbedder('bert-base-uncased', requires_grad=True)
+
+        if bert_max_length > 512:
+            first_half = self.embedder.bert_model.embeddings.position_embeddings.weight
+            # ts = torch.zeros_like(first_half, dtype=torch.float32)
+            # second_half = ts.new_tensor(first_half, requires_grad=True)
+
+            second_half = torch.zeros_like(first_half, dtype=torch.float32, requires_grad=True)
+
+            # second_half = torch.empty(first_half.size(), dtype=torch.float32,requires_grad=True)
+            # torch.nn.init.normal_(second_half, mean=0.0, std=1.0)
+            # print('normal')
+            out = torch.cat([first_half, second_half], dim=0)
+            # print('-- copy')
+            self.embedder.bert_model.embeddings.position_embeddings.weight = torch.nn.Parameter(out)
+            self.embedder.bert_model.embeddings.position_embeddings.num_embeddings = 512 * 2
+            self.embedder.max_pieces = 512 * 2
+
+        """
         if isinstance(bert_model, str):
             self.bert_model = PretrainedBertModel.load(bert_model)
         else:
             self.bert_model = bert_model
+    
         if bert_max_length > 512:
             first_half = self.bert_model.embeddings.position_embeddings.weight
             ts = torch.zeros_like(first_half, dtype=torch.float32)
@@ -260,14 +147,15 @@ class TensorBertSum(Model):
             self.bert_model.embeddings.position_embeddings.num_embeddings = 512*2
 
         self.bert_model.config = BertConfig.from_json_file(bert_config_file)
-        self._graph_encoder = graph_encoder
+        
 
         for param in self.bert_model.parameters():
             param.requires_grad = trainable
 
         in_features = self.bert_model.config.hidden_size
-        # self._min_pred_len = min_pred_length
-        # self._max_pred_len = max_pred_length
+        """
+        self._graph_encoder = graph_encoder
+        in_features = 768
         self._index = index
         self._dropout = torch.nn.Dropout(p=dropout)
         self._classification_layer = torch.nn.Linear(in_features, 1)
@@ -285,9 +173,7 @@ class TensorBertSum(Model):
                                       path_to_valid=tmp_dir))
             # self._rouge = PyrougeEvaluation(name='rouge', cand_path=tmp_dir, ref_path=tmp_dir, path_to_valid=tmp_dir)
         self._sigmoid = nn.Sigmoid()
-        # self.bert_model.requires_grad = False
         initializer(self._classification_layer)
-        # xavier_uniform_(self._classification_layer._parameters())
 
         self._use_disco = use_disco
 
@@ -300,6 +186,24 @@ class TensorBertSum(Model):
         self._min_pred_word = min_pred_word
         self._max_pred_word = max_pred_word
         self._step = step
+
+    """
+    def tear_apart_input_for_bert(self, inps, segs, stride=100):
+        # if inps.size(-1) % 2 != 0:
+        #     pass
+        # print(inps.size())
+        first_inps = inps[:, :512]
+        second_inps = inps[:, 512 - stride:]
+        first_segs = segs[:, :512]
+        second_segs = segs[:, 512 - stride:]
+        first_output = self.embedder.forward(first_inps, first_segs)
+        sec_output = self.embedder.forward(second_inps, second_segs)[:, stride:, :]
+        # print(first_output.size())
+        # print(sec_output.size())
+        cat = torch.cat((first_output, sec_output), dim=1)
+        # print(cat.size())
+        return first_output
+    """
 
     def transform_sent_rep(self, sent_rep, sent_mask):
         init_graphs = self._graph_encoder.convert_sent_tensors_to_graphs(sent_rep, sent_mask)
@@ -320,22 +224,35 @@ class TensorBertSum(Model):
                 disco_label,
                 disco_span,
                 disco_coref_graph,
-                disco_rst_graph
+                # disco_rst_graph
                 ):
         if detect_nan(tokens['bert']) or detect_nan(labels) or detect_nan(segs) or detect_nan(clss):
             print("NAN")
             exit()
         # print(meta_field)
+        # if random.random() < 0.001:
+        #     print('real zero')
         with autograd.detect_anomaly():
             input_ids = tokens[self._index]
+            ## old bert
             input_mask = (input_ids != 0).long()
-            segs = segs.long()
-            # print(input_ids.size())
-            encoded_layers, _ = self.bert_model(input_ids=input_ids,
-                                                token_type_ids=segs,
-                                                attention_mask=input_mask)
+            # segs = segs.long()
+            # encoded_layers, _ = self.bert_model(input_ids=input_ids,
+            #                                     token_type_ids=segs,
+            #                                     attention_mask=input_mask)
+            ####### end of old bert
+            # start of new bert
+            output = self.embedder.forward(input_ids=input_ids,
+                                           token_type_ids=segs
+                                           )
+            # print(output.size())
+            top_vec = output
+            # hardcode bert
+            # top_vec = self.tear_apart_input_for_bert(input_ids, segs)
+            # print(output.size())
+            # exit()
             # print("raodmark2")
-            top_vec = encoded_layers[-1]
+            # top_vec = encoded_layers[-1]
             # top_vec = self._dropout(top_vec)
             label_to_use = None
             if self._use_disco:
@@ -355,8 +272,9 @@ class TensorBertSum(Model):
 
             # sent_rep = self._layer_norm(sent_rep, sent_mask)
             if self._use_disco_graph:
-                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,
-                                                                                 disco_rst_graph)
+                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output,
+                                                                                 encoder_output_msk,
+                                                                                 meta_field, 'disco_rst_graph')
             elif self._use_coref:
                 encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,
                                                                                  disco_coref_graph)

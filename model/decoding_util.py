@@ -10,6 +10,7 @@ def resolve_dependency(dep):
             dic[source_node - 1] = [tgt_node - 1]
     return dic
 
+from nltk.tokenize.treebank import TreebankWordDetokenizer
 
 from collections import deque
 from typing import List
@@ -95,17 +96,24 @@ def std_decode(sel_indexes, use_disco, source_txt, dependency_dict,
         if pred_word == [] and idx > 0:
             pred_word_lists[idx] = pred_word_lists[idx - 1]
             pred_indexes_lists[idx] = pred_indexes_lists[idx - 1]
-        elif pred_word == [] and idx < len(pred_word_lists)-1:
-            pred_word_lists[idx] = pred_word_lists[idx +1]
+        elif pred_word == [] and idx < len(pred_word_lists) - 1:
+            pred_word_lists[idx] = pred_word_lists[idx + 1]
             pred_indexes_lists[idx] = pred_indexes_lists[idx + 1]
+        elif pred_word == []:
+            print("OOOps")
+            print(idx)
+            print(pred_indexes_lists)
+            raise NotImplementedError
+            # pred_indexes_lists[idx] = [0]
     pred_word_strs_list = [[] for _ in range(num_slots)]
     # split sentences
     for idx, pred in enumerate(pred_indexes_lists):
-        splited = split_sentence_according_to_id(pred)
+        splited = split_sentence_according_to_id(pred,use_disco)
         _t = []
         for sp in splited:
             x = flatten([source_txt[s] for s in sp])
-            _t.append(" ".join(easy_post_processing(x)))
+            _t.append(TreebankWordDetokenizer().detokenize(easy_post_processing(x)))
+            # _t.append(" ".join(easy_post_processing(x)))
         pred_word_strs_list[idx] = _t
     # for idx, pred_word in enumerate(pred_word_lists):
     #     pred_word_strs.append(

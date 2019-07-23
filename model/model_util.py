@@ -22,9 +22,11 @@ def detect_nan(input_tensor) -> bool:
 from typing import List
 
 
-def split_sentence_according_to_id(inp) -> List[List[int]]:
+def split_sentence_according_to_id(inp,use_disco) -> List[List[int]]:
     if len(inp) <= 1:
         return [inp]
+    if not use_disco:
+        return [[x] for x in inp]
     buff = [inp[0]]
     output = []
     for idx in range(1, len(inp)):

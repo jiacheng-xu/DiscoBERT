@@ -1,7 +1,10 @@
 local util = import "utils.libsonnet";
 
-local debug=false;
+//local debug=false;
+local debug=true;
 
+local max_bpe=768;
+//local max_bpe=512;
 
 //local cuda_device = 0;
 //local cuda_device = 1;
@@ -9,6 +12,7 @@ local debug=false;
 local cuda_device = 3;
 
 local bertsum_oracle=false;
+//local bertsum_oracle=true;
 
 local multi_orac=false;
 //local multi_orac=true;
@@ -22,7 +26,7 @@ local trigram_block=true;
 //local trigram_block=false;
 
 local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 22 else  1088;
+local num_of_batch_per_train_epo= if debug then 22 else  2088;
 
 
 //local global_root = '/scratch/cluster/jcxu/GETSum';
@@ -33,7 +37,7 @@ local root = '/datadrive/data/cnndm';
 
 
 local min_pred_word=40;
-local max_pred_word=140;
+local max_pred_word=130;
 
 //local pred_len_min=5;
 //local pred_len_max=9;
@@ -50,8 +54,8 @@ local use_coref=false;
 //local use_disco_graph = true;
 //local use_coref=false;
 
-local agg_func=util.easy_graph_encoder;
-
+//local agg_func=util.easy_graph_encoder;
+local agg_func=util.gcn;
 
 local train_data_path =root+'/train/';
 local valid_data_path =root+'/test/';
@@ -94,6 +98,7 @@ local bert_vocab = global_root+"/bert_vocab";
         "type": "cnndm",
         "debug":debug,
         "bertsum_oracle":bertsum_oracle,
+        "max_bpe":max_bpe,
         "bert_model_name": "bert-base-uncased",
         "token_indexers": {
             "bert": {
@@ -115,7 +120,7 @@ local bert_vocab = global_root+"/bert_vocab";
         "type": "tensor_bert",
         "bert_model": bert_model,
         "bert_config_file":bert_config,
-        "bert_max_length":768,
+        "bert_max_length":max_bpe,
         "multi_orac":multi_orac,
         "trainable":util.bert_trainable,
         "dropout":dropout,

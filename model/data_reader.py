@@ -16,7 +16,8 @@ from allennlp.data.vocabulary import Vocabulary
 from allennlp.modules.token_embedders.bert_token_embedder import BertEmbedder
 import sys
 import numpy
-
+from nltk.tokenize import TweetTokenizer
+tknzr = TweetTokenizer()
 from data_preparation.search_algo import original_greedy_selection
 
 numpy.set_printoptions(threshold=sys.maxsize)
@@ -103,13 +104,15 @@ class CNNDMDatasetReader(DatasetReader):
     def __init__(self,
                  lazy: bool = True,
                  bert_model_name: str = 'bert-base-uncased',
+                 max_bpe: int = None,
                  token_indexers: Dict[str, TokenIndexer] = PretrainedBertIndexer("bert-base-uncased"),
                  debug: bool = False,
                  bertsum_oracle: bool = True,
                  ) -> None:
         super().__init__(lazy=lazy)
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
-        self._token_indexers['bert'].max_pieces = 1024
+        if max_bpe is not None:
+            self._token_indexers['bert'].max_pieces = max_bpe
         self._debug = debug
         self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
         # self.bert_tokenizer = WordTokenizer(word_splitter=BertBasicWordSplitter())
@@ -117,10 +120,13 @@ class CNNDMDatasetReader(DatasetReader):
         logger.info("Finish Initializing of Dataset Reader")
         self.bert_lut = list(self._token_indexers['bert'].vocab.items())
         self.bert_lut = [x[0] for x in self.bert_lut]
-
+        self.max_bpe = max_bpe
         self.train_pts = []
         self.bertsum_oracle = bertsum_oracle
         random.seed(112312)
+
+    def boil_pivot_table(self, sent_txt):
+        pass
 
     def refill_data(self, fpath):
         partition_name = identify_partition_name(fpath)
@@ -203,90 +209,7 @@ class CNNDMDatasetReader(DatasetReader):
                                                 identify_partition_name(f)
                                                 )
 
-        #
-        # if partition_name == 'test' and self._debug:
-        #     logger.warning("debug mode only loads part of test set!")
-        #     files = files[:2]
-        #
-        # for f in files:
-        #     dataset = torch.load(os.path.join(file_path, f))
-        #     print('Loading dataset from %s, number of examples: %d' %
-        #           (f, len(dataset)))
-        #     logger.info('Loading dataset from %s, number of examples: %d' %
-        #                 (f, len(dataset)))
-        #     for d in dataset:
-        #         # print("yielding from {}".format(f))
-        #         # print(d)
-        #         yield self.text_to_instance(d['src'],
-        #                                     d['labels'],
-        #                                     d['segs'],
-        #                                     d['clss'],
-        #                                     d['sent_txt'],
-        #                                     d['disco_txt'],
-        #                                     d['tgt_txt'],
-        #                                     d['d_labels'],
-        #                                     d['d_span'],
-        #                                     d['d_coref'],
-        #                                     identify_partition_name(f)
-        #                                     )
-        # cnt += 1
-        # if cnt > 2000:
-        #     return
-
-    @overrides
-    def text_to_instance(self,
-                         doc_text: List[int],  # Must have. List[int]
-                         labels: List[int],  # label, binary supervision, position wise
-                         segs: List[int],  # segments binary
-                         clss: List[int],
-                         sent_txt: List[str],
-                         disco_txt: List[str],
-                         tgt_txt: str,
-                         disco_label,
-                         disco_span,
-                         disco_coref,
-                         disco_graph,
-                         disco_dep,
-                         doc_id: str,
-                         spilit_type
-                         ):
-
-        # sentence1 = "the quickest quick brown fox jumped over the lazy dog"
-        # tokens1 = self.tokenizer.tokenize(sentence1)
-        # print(len(doc_text))
-        # print(doc_text)
-        assert len(segs) > 0
-        assert len(labels) > 0
-        assert len(clss) > 0
-
-        num_of_disco = len(disco_label[0])
-
-        text_tokens = [Token(text=self.bert_lut[x], idx=x) for x in doc_text][1:-1]
-        text_tokens = TextField(text_tokens, self._token_indexers
-                                )
-        #            2   3    4   3     5     6   8      9    2   14   12
-        # sentence1 = "the quickest quick brown fox jumped over the lazy dog"
-        # tokens1 = self.bert_tokenizer.tokenize(sentence1)
-        # text_tokens = tokens1
-        # text_tokens = TextField(text_tokens, {"bert": self._token_indexers})
-        if self.bertsum_oracle:
-            _tgt = tgt_txt.split('<q>')
-            _tgt = [x.split(" ") for x in _tgt]
-            labels = original_greedy_selection(sent_txt, _tgt, 3)
-            z = np.zeros((1, len(sent_txt)))
-            for l in labels:
-                z[0][l] = 1
-            labels = z
-        else:
-            labels = label_filter(labels)
-        labels = ArrayField(np.asarray(labels), padding_value=-1, dtype=np.int)
-        segs = ArrayField(np.asarray(segs), padding_value=0, dtype=np.int)  # TODO -1 or 0?
-        clss = ArrayField(np.asarray(clss), padding_value=-1, dtype=np.int)
-
-        disco_label = label_filter(disco_label)
-        disco_label = ArrayField(np.asarray(disco_label), padding_value=-1, dtype=np.int)
-        disco_span = ArrayField(np.asarray(disco_span), padding_value=-1, dtype=np.int)
-
+    def create_disco_coref(self, disco_coref, num_of_disco):
         disco_coref = [x for x in disco_coref if x[0] != x[1]]
         # DGL
         ##########
@@ -305,34 +228,108 @@ class CNNDMDatasetReader(DatasetReader):
         #########
         for cor in disco_coref:
             x, y = cor
-            empty[x][y] += 1
-            empty[y][x] += 1
+            if x<num_of_disco and y<num_of_disco:
+                empty[x][y] += 1
+                empty[y][x] += 1
         eye = np.eye(num_of_disco, dtype=float)
         np_graph = eye + empty
         coref_graph = ArrayField(np_graph, padding_value=0, dtype=np.float32)
         #########
 
+        return coref_graph
+
+    def create_disco_graph(self, disco_graph, num_of_disco: int) -> List[tuple]:
+
         ########
         # disco graph
+        dis_graph_as_list_of_tuple = []
         dis_graph = np.zeros((num_of_disco, num_of_disco), dtype=float)
         for rst in disco_graph:
             rst_src, rst_tgt = rst[0], rst[1]
             if rst_src < num_of_disco and rst_tgt < num_of_disco:
-                dis_graph[rst_src][rst_tgt] = 1
-        # if random.random() < 0.01:
-        #     print(dis_graph)
-        dis_graph = ArrayField(dis_graph, padding_value=0, dtype=np.float32)
-        ########
+                # dis_graph[rst_src][rst_tgt] = 1
+                dis_graph_as_list_of_tuple.append((rst_src, rst_tgt))
+        # dis_graph = ArrayField(dis_graph, padding_value=0, dtype=np.float32)
 
+        return dis_graph_as_list_of_tuple
+
+    @overrides
+    def text_to_instance(self,
+                         doc_text: List[int],  # Must have. List[int]
+                         labels: List[int],  # label, binary supervision, position wise
+                         segs: List[int],  # segments binary
+                         clss: List[int],
+                         sent_txt: List[str],
+                         disco_txt: List[str],
+                         tgt_txt: str,
+                         disco_label,
+                         disco_span,
+                         disco_coref,
+                         disco_graph,
+                         disco_dep,
+                         doc_id: str,
+                         spilit_type
+                         ):
+        assert len(segs) > 0
+        assert len(labels) > 0
+        assert len(clss) > 0
+        if self.max_bpe<768:
+            clss = [x for x in clss if x < self.max_bpe]
+            doc_text = doc_text[:self.max_bpe]
+            segs = segs[:self.max_bpe]
+            actual_sent_len = len(clss)
+            labels = [l[:actual_sent_len] for l in labels]
+
+            # disco part
+            disco_span = [x for x in disco_span if x[1] < self.max_bpe]
+            num_of_disco = len(disco_span)
+            disco_label = [l[:num_of_disco] for l in disco_label]
+        else:
+            actual_sent_len = len(sent_txt)
+        num_of_disco = len(disco_label[0])
+
+        text_tokens = [Token(text=self.bert_lut[x], idx=x) for x in doc_text][1:-1]
+        text_tokens = TextField(text_tokens, self._token_indexers
+                                )
+        # sentence
+        self.boil_pivot_table(sent_txt, )
+        #            2   3    4   3     5     6   8      9    2   14   12
+        # sentence1 = "the quickest quick brown fox jumped over the lazy dog"
+        # tokens1 = self.bert_tokenizer.tokenize(sentence1)
+        if self.bertsum_oracle:
+            _tgt = tgt_txt.split('<q>')
+            _tgt = [tknzr.tokenize(x) for x in _tgt]
+            labels = original_greedy_selection(sent_txt[:actual_sent_len], _tgt, 3)
+            z = np.zeros((1, actual_sent_len))
+            for l in labels:
+                z[0][l] = 1
+            labels = z
+        else:
+            labels = label_filter(labels)
+
+        labels = ArrayField(np.asarray(labels), padding_value=-1, dtype=np.int)
+        segs = ArrayField(np.asarray(segs), padding_value=0, dtype=np.int)  # TODO -1 or 0?
+        clss = ArrayField(np.asarray(clss), padding_value=-1, dtype=np.int)
+
+        disco_label = label_filter(disco_label)
+        disco_label = ArrayField(np.asarray(disco_label), padding_value=-1, dtype=np.int)
+        disco_span = ArrayField(np.asarray(disco_span), padding_value=-1, dtype=np.int)
+
+        coref_graph = self.create_disco_coref(
+            disco_coref, num_of_disco
+        )
+        dis_graph = self.create_disco_graph(
+            disco_graph, num_of_disco
+        )
         meta_field = MetadataField({
             "source": 'cnndm',
             "type": spilit_type,
             "sent_txt": sent_txt,
             "disco_txt": disco_txt,
-            "tgt_txt": tgt_txt,
+            "tgt_txt": " ".join(tknzr.tokenize(tgt_txt)),
             'disco_dep': disco_dep,
-            'doc_id': doc_id
-
+            'doc_id': doc_id,
+            'disco_rst_graph':dis_graph
             # "coref_graph": coref_graph
         })
         fields = {"tokens": text_tokens,
@@ -343,7 +340,7 @@ class CNNDMDatasetReader(DatasetReader):
                   "disco_label": disco_label,
                   "disco_span": disco_span,
                   'disco_coref_graph': coref_graph,
-                  'disco_rst_graph': dis_graph
+                  # 'disco_rst_graph': dis_graph
                   }
         return Instance(fields)
 
