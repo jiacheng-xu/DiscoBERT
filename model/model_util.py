@@ -3,7 +3,7 @@ import torch
 
 def extract_n_grams(inp_str, ngram: int = 3, connect_punc='_') -> set:
     inp_list = inp_str.split(" ")
-    if len(inp_list) < 3:
+    if len(inp_list) < ngram:
         return set()
     tmp = []
     for idx in range(len(inp_list) - ngram + 1):
@@ -21,25 +21,37 @@ def detect_nan(input_tensor) -> bool:
 
 from typing import List
 
+REMAP = {"-lrb-": "(", "-rrb-": ")", "-lcb-": "{", "-rcb-": "}",
+         "-lsb-": "[", "-rsb-": "]", "``": '"', "''": '"'}
+import re
 
-def split_sentence_according_to_id(inp,use_disco) -> List[List[int]]:
+
+def clean(x):
+    return re.sub(
+        r"-lrb-|-rrb-|-lcb-|-rcb-|-lsb-|-rsb-|``|''",
+        lambda m: REMAP.get(m.group()), x)
+
+
+def split_sentence_according_to_id(inp, use_disco, disco_map) -> List[List[int]]:
     if len(inp) <= 1:
         return [inp]
+    actual_sent_len = disco_map[-1]
+    actual_disco_len = len(disco_map)
     if not use_disco:
-        return [[x] for x in inp]
-    buff = [inp[0]]
-    output = []
-    for idx in range(1, len(inp)):
-        if buff == []:
-            buff.append(inp[idx])
-        elif inp[idx] - 2 > buff[-1]:
-            output.append(buff)
-            buff = [inp[idx]]
+        return [[x] for x in inp if x < actual_sent_len]
+    d = {}
+    for x in inp:
+        if x >= actual_disco_len:
+            continue
+        sent = disco_map[x]
+        if sent in d:
+            d[sent] = d[sent] + [x]
         else:
-            buff.append(inp[idx])
-    if buff != []:
-        output.append(buff)
-    return output
+            d[sent] = [x]
+    buff = []
+    for k, v in d.items():
+        buff.append(v)
+    return buff
 
 
 from typing import List

@@ -24,10 +24,12 @@ if __name__ == '__main__':
 
     # from nltk.tokenize.stanford import StanfordTokenizer
     from nltk.tokenize import TweetTokenizer
-
+    import nltk
     tknzr = TweetTokenizer()
-    s = "Good muffins cost $3.88\nin New York.  Please buy me\ntwo of them.\nThanks."
-    s= "craze has taken off thanks to owners posting pictures on social media<q>initial idea was to give the pets a more eye-grabbing and clean-cut look<q>one dog salon worker in taipei has insisted that 'the dogs do n't mind '"
+
+    s = "Good muffins cost's ,\" good\" $3.88\nin 26-year-old ,New York.  Please buy me\ntwo of them.\nThanks."
+    print(nltk.word_tokenize(s))
+    # s= "craze has taken off thanks to owners posting pictures on social media<q>initial idea was to give the pets a more eye-grabbing and clean-cut look<q>one dog salon worker in taipei has insisted that 'the dogs do n't mind '"
     print(tknzr.tokenize(s))
     exit()
     path = '/datadrive/data/cnndm/train'

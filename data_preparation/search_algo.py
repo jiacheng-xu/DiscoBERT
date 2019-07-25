@@ -1,7 +1,9 @@
-import re,itertools
+import re, itertools
 
-from data_preparation.nlpyang_utils import _get_word_ngrams,_get_ngrams
-def cal_rouge(evaluated_ngrams:set, reference_ngrams:set, evaluated_len:int, reference_len:int):
+from data_preparation.nlpyang_utils import _get_word_ngrams, _get_ngrams
+
+
+def cal_rouge(evaluated_ngrams: set, reference_ngrams: set, evaluated_len: int, reference_len: int):
     # reference_count = len(reference_ngrams)
     # evaluated_count = len(evaluated_ngrams)
 
@@ -56,9 +58,13 @@ def combination_selection(doc_sent_list, abstract_sent_list, summary_size):
     return sorted(list(max_idx))
 
 
-def original_greedy_selection(doc_sent_list, abstract_sent_list, summary_size):
+from typing import List
+
+
+def original_greedy_selection(doc_sent_list: List[List[str]], abstract_sent_list: List[List[str]], summary_size):
     def _rouge_clean(s):
         return re.sub(r'[^a-zA-Z0-9 ]', '', s)
+
     from data_preparation.nlpyang_data_builder import cal_rouge
     max_rouge = 0.0
     abstract = sum(abstract_sent_list, [])

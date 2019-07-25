@@ -118,17 +118,15 @@ def MS_formate_to_bert(params):
     jobs = json.load(open(read_json_file))
     datasets = []
     for d in jobs:
-        # disco_node = d['disco_node']
-        # gen = get_next_node(disco_node)
-        # if len(disco_node) == 0:
-        #     print(d)
-        #     continue
         disco_dep = d['disco_dep']
 
         # disco_graph_links = d['disco_graph_links']
         disco_links = d['disco_link']  #####
 
-        span, tgt = d['disco_span'], d['tgt']
+        tgt_list_str = d['tgt_list_str']
+        tgt_tok_list_list_str = d['tgt_tok_list_list_str']
+
+        span = d['disco_span']
         sent, doc_id, coref = d['sent'], d['doc_id'], d['coref']
 
         # First of all, assemble data and  LENGTH truncation
@@ -182,10 +180,11 @@ def MS_formate_to_bert(params):
         disco_graph_links = [(tup[0] - 1, tup[1] - 1, tup[2]) for tup in disco_links if
                              (tup[0] <= effective_disco_number and tup[1] <= effective_disco_number)]
 
-        disc_oracle_ids, disc_spans, disc_coref = bert_data.preprocess_disc(disco_bag, tgt)
+        disc_oracle_ids, disc_spans, disc_coref = bert_data.preprocess_disc(disco_bag, tgt_tok_list_list_str)
 
         src_tok_index, sent_oracle_labels, segments_ids, \
-        cls_ids, original_sent_txt_list_of_str, tgt_txt = bert_data.preprocess_sent(sent_bag, summary=tgt)
+        cls_ids, original_sent_txt_list_of_str, tgt_txt = bert_data.preprocess_sent(sent_bag,
+                                                                                    summary=tgt_tok_list_list_str)
         # TO have: src_subtoken_idxs [for bert encoder], labels[sent level and discourse level],
         # segments_ids[for bert encoder],
         # cls_ids[for sent level],
@@ -208,7 +207,9 @@ def MS_formate_to_bert(params):
                        'clss': cls_ids,
                        'sent_txt': original_sent_txt_list_of_str,
                        'disco_txt': original_disco_txt_list_of_str,
-                       "tgt_txt": tgt_txt,
+                       # "tgt_txt": tgt_txt,
+                       "tgt_list_str": tgt_list_str,  # unchanged reference summary for computing final score
+                       "tgt_tok_list_list_str": tgt_tok_list_list_str,  # for oracle, tokenized
                        'd_labels': disc_oracle_ids,
                        'd_span': disc_spans,
                        'd_coref': disc_coref,
@@ -217,7 +218,7 @@ def MS_formate_to_bert(params):
                        'doc_id': doc_id
 
                        }
-        if len(src_tok_index) < 15 or len(tgt_txt) < 3:
+        if len(src_tok_index) < 15:
             continue
         datasets.append(b_data_dict)
     logger.info('Saving to %s' % wt_pt_file)

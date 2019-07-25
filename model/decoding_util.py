@@ -10,6 +10,7 @@ def resolve_dependency(dep):
             dic[source_node - 1] = [tgt_node - 1]
     return dic
 
+
 from nltk.tokenize.treebank import TreebankWordDetokenizer
 
 from collections import deque
@@ -43,8 +44,109 @@ flatten = lambda l: [item for sublist in l for item in sublist]
 from model.model_util import extract_n_grams, easy_post_processing, split_sentence_according_to_id
 
 
-def std_decode(sel_indexes, use_disco, source_txt, dependency_dict,
-               trigram_block, min_pred_word, max_pred_word, step):
+def std_decode_unit(stop_by_word_cnt, sel_indexes, use_disco, source_txt, dependency_dict,
+                    trigram_block, min_pred_word, max_pred_word, step, min_pred_unit, max_pred_unit, disco_map_2_sent):
+    # pred_word_lists = [[] for i in range(int((max_pred_word - min_pred_word) / step))]
+    # pred_indexes_lists = [[] for i in range(int((max_pred_word - min_pred_word) / step))]
+    pred_word_lists = []
+    pred_indexes_lists = []
+    current_trigrams = set()
+    current_words = []
+    current_indexes: List[List[int]] = [[]]
+    hoop_cnt = 0
+    for sel_i in sel_indexes:
+        hoop_cnt += 1
+        nothing_changed = False
+        try:
+            if use_disco:
+                candidates = _decode_disco(sel_i, dependency_dict)
+            else:
+                candidates = _decode_sent(sel_i)
+            candidates.sort()
+
+            cur_index = current_indexes[-1]
+            # there is some overlapping
+            if not set(candidates).isdisjoint(set(cur_index)):
+                if set(candidates).issubset(set(cur_index)):
+                    # nothing changed
+                    nothing_changed = True
+                else:
+                    # there is some overlap
+                    if trigram_block:
+                        # # compare c in candidates with current traigram
+                        # if add, update the current trigram
+                        tmp = cur_index
+                        _len = len(tmp)
+                        for c in candidates:
+                            if c in cur_index:
+                                continue
+                            c_trigram = extract_n_grams(" ".join(source_txt[c]))
+                            if current_trigrams.isdisjoint(c_trigram):
+                                # current_indexes[jdx] = list({c}.union(set(cur_index)))
+                                if c not in tmp:
+                                    tmp.append(c)
+                                current_trigrams.update(c_trigram)
+                        if len(tmp) > _len:
+                            current_indexes.append(list(set(tmp).union(set(cur_index))))
+                        else:
+                            nothing_changed = True
+                    else:
+                        # don't consider trigram
+                        current_indexes.append(list(set(candidates).union(set(cur_index))))
+            else:  # there is NO overlapping
+                if trigram_block:
+                    # compare c in candidates with current traigram
+                    # if add, update the current trigram
+                    tmp = []
+                    for c in candidates:
+                        c_trigram = extract_n_grams(" ".join(source_txt[c]))
+                        if current_trigrams.isdisjoint(c_trigram):
+                            tmp.append(c)
+                            current_trigrams.update(c_trigram)
+                    if len(tmp) > 0:
+                        current_indexes.append(list(set(tmp).union(set(cur_index))))
+                    else:
+                        nothing_changed = True
+                else:
+                    current_indexes.append(list(set(candidates).union(set(cur_index))))
+
+            if hoop_cnt > 20:
+                break
+            if nothing_changed:
+                continue
+
+            # pred_indexes_lists.append(sum(current_indexes, []))
+            if len(current_indexes) > max_pred_unit + 1:
+                break
+        except IndexError:
+            logger.warning("Index Error\n{}".format(source_txt))
+
+    current_indexes = current_indexes[1:]
+    assert len(current_indexes) > 0
+    # backup if pred_indexes_lists is not enough
+    while len(current_indexes) < max_pred_unit:
+        current_indexes.append(current_indexes[-1])
+
+    # split sentences
+    for idx, pred in enumerate(current_indexes):
+        pred.sort()
+        splited = split_sentence_according_to_id(pred, use_disco, disco_map_2_sent)
+        _t = []
+        for sp in splited:
+            sp.sort()
+            x = flatten([source_txt[s] for s in sp])
+            _t.append(TreebankWordDetokenizer().detokenize(easy_post_processing(x)))
+            # _t.append(" ".join(easy_post_processing(x)))
+        pred_word_lists.append(_t)
+    # for idx, pred_word in enumerate(pred_word_lists):
+    #     pred_word_strs.append(
+    #         " ".join(easy_post_processing(pred_word))
+    #     )
+    return pred_word_lists
+
+
+def std_decode(stop_by_word_cnt, sel_indexes, use_disco, source_txt, dependency_dict,
+               trigram_block, min_pred_word, max_pred_word, step, min_pred_unit, max_pred_unit):
     pred_word_lists = [[] for i in range(int((max_pred_word - min_pred_word) / step))]
     pred_indexes_lists = [[] for i in range(int((max_pred_word - min_pred_word) / step))]
     num_slots = len(pred_word_lists)
@@ -108,7 +210,7 @@ def std_decode(sel_indexes, use_disco, source_txt, dependency_dict,
     pred_word_strs_list = [[] for _ in range(num_slots)]
     # split sentences
     for idx, pred in enumerate(pred_indexes_lists):
-        splited = split_sentence_according_to_id(pred,use_disco)
+        splited = split_sentence_according_to_id(pred, use_disco)
         _t = []
         for sp in splited:
             x = flatten([source_txt[s] for s in sp])
@@ -134,12 +236,13 @@ import numpy as np
 
 
 def decode_entrance(prob, meta_data, use_disco, trigram_block: bool = True,
-                    use_pivot_decode: bool = False,
+                    use_pivot_decode: bool = False, stop_by_word_cnt: bool = True,
                     min_pred_word: int = 40, max_pred_word: int = 80,
-                    step: int = 10
+                    step: int = 10, min_pred_unit: int = 3, max_pred_unit: int = 6
                     ):
     tgt = meta_data['tgt_txt']
     sel_indexes = np.argsort(-prob)
+    disco_map_2_sent = meta_data['disco_map_to_sent']
     if use_disco:
         src = meta_data['disco_txt']
         dep = meta_data['disco_dep']
@@ -150,6 +253,12 @@ def decode_entrance(prob, meta_data, use_disco, trigram_block: bool = True,
     if use_pivot_decode:
         pred_word_strs = pivot_decode()
     else:
-        pred_word_strs = std_decode(sel_indexes, use_disco, src, dep_dic,
-                                    trigram_block, min_pred_word, max_pred_word, step)
+        if stop_by_word_cnt:
+
+            pred_word_strs = std_decode(stop_by_word_cnt, sel_indexes, use_disco, src, dep_dic,
+                                        trigram_block, min_pred_word, max_pred_word, step, min_pred_unit, max_pred_unit)
+        else:
+            pred_word_strs = std_decode_unit(stop_by_word_cnt, sel_indexes, use_disco, src, dep_dic,
+                                             trigram_block, min_pred_word, max_pred_word, step, min_pred_unit,
+                                             max_pred_unit, disco_map_2_sent)
     return pred_word_strs, tgt

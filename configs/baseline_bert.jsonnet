@@ -1,15 +1,18 @@
 local util = import "utils.libsonnet";
 
-//local debug=false;
-local debug=true;
+local debug=false;
+//local debug=true;
 
 local max_bpe=768;
 //local max_bpe=512;
 
-//local cuda_device = 0;
+//local cuda_device = [0,1,2,3];
+local cuda_device = 0;
 //local cuda_device = 1;
 //local cuda_device = 2;
-local cuda_device = 3;
+//local cuda_device = 3;
+
+local stop_by_word_count=false;
 
 local bertsum_oracle=false;
 //local bertsum_oracle=true;
@@ -19,14 +22,17 @@ local multi_orac=false;
 
 local BATCH_SIZE=6;
 
-//local use_disco=true;
-local use_disco=false;
+local use_disco=true;
+//local use_disco=false;
 
 local trigram_block=true;
 //local trigram_block=false;
 
+local min_pred_unit=2;
+local max_pred_unit=8;
+
 local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 22 else  2088;
+local num_of_batch_per_train_epo= if debug then 22 else  3088;
 
 
 //local global_root = '/scratch/cluster/jcxu/GETSum';
@@ -38,21 +44,20 @@ local root = '/datadrive/data/cnndm';
 
 local min_pred_word=40;
 local max_pred_word=130;
-
 //local pred_len_min=5;
 //local pred_len_max=9;
 //local use_disco=true;
 
 
-local use_disco_graph = false;
-local use_coref=false;
+//local use_disco_graph = false;
+//local use_coref=false;
 
 //local use_disco_graph = false;
 //local use_coref=true;
 
 
-//local use_disco_graph = true;
-//local use_coref=false;
+local use_disco_graph = true;
+local use_coref=false;
 
 //local agg_func=util.easy_graph_encoder;
 local agg_func=util.gcn;
@@ -118,23 +123,25 @@ local bert_vocab = global_root+"/bert_vocab";
 
     "model": {
         "type": "tensor_bert",
-        "bert_model": bert_model,
-        "bert_config_file":bert_config,
+        "debug":debug,
+//        "bert_model": bert_model,
+//        "bert_config_file":bert_config,
         "bert_max_length":max_bpe,
         "multi_orac":multi_orac,
         "trainable":util.bert_trainable,
         "dropout":dropout,
         "graph_encoder":agg_func,
 //        "pred_length":pred_len,
+        "stop_by_word_count":stop_by_word_count,
         "use_disco":use_disco,
         "use_disco_graph":use_disco_graph,
         "use_coref":use_coref,
         "span_extractor":util.SelfAttnSpan,
         "trigram_block":trigram_block,
         "min_pred_word":min_pred_word,
-        "max_pred_word":max_pred_word
-//         "min_pred_length":pred_len_min,       # 4 for cnn
-//        "max_pred_length":pred_len_max,        # 6 for cnn
+        "max_pred_word":max_pred_word,
+         "min_pred_unit":min_pred_unit,       # 4 for cnn
+        "max_pred_unit":max_pred_unit,        # 6 for cnn
     },
      "iterator":base_iterator,
 //     {type: 'multiprocess',
@@ -156,10 +163,10 @@ local bert_vocab = global_root+"/bert_vocab";
          "optimizer": {
             "type": util.optimizer,
             "lr": util.lr,
-            "warmup":util.warmup,
-            "t_total": 8000,
+//            "warmup":util.warmup,
+            "t_total": -1,
             "max_grad_norm": 1.0,
-            "weight_decay": 0.01,
+            "weight_decay": 0.0001,
             "parameter_groups": [
               [["bias", "LayerNorm.bias", "LayerNorm.weight", "layer_norm.weight"], {"weight_decay": 0.0}],
             ],
@@ -169,10 +176,10 @@ local bert_vocab = global_root+"/bert_vocab";
         "validation_metric": "+R_1",
         "num_serialized_models_to_keep": 3,
         "num_epochs": 50,
-//        "grad_norm": 10.0,
-        "patience": 5,
+        "patience": 8,
         "cuda_device": cuda_device,
         "grad_clipping":5,
+
 //        "learning_rate_scheduler":{
 //        "type":"noam",
 //        'model_size':768,

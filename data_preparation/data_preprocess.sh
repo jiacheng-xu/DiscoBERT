@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 #data_name='dailymail'
-#data_name='cnn'
-data_name='nyt'
+data_name='cnn'
+#data_name='nyt'
 
 #home_dir='/datadrive'
 home_dir='/scratch/cluster/jcxu'

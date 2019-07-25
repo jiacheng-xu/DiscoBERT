@@ -1,3 +1,4 @@
+import nltk
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import *
@@ -17,6 +18,7 @@ from allennlp.modules.token_embedders.bert_token_embedder import BertEmbedder
 import sys
 import numpy
 from nltk.tokenize import TweetTokenizer
+
 tknzr = TweetTokenizer()
 from data_preparation.search_algo import original_greedy_selection
 
@@ -123,7 +125,7 @@ class CNNDMDatasetReader(DatasetReader):
         self.max_bpe = max_bpe
         self.train_pts = []
         self.bertsum_oracle = bertsum_oracle
-        random.seed(112312)
+        random.seed(1112)
 
     def boil_pivot_table(self, sent_txt):
         pass
@@ -169,7 +171,8 @@ class CNNDMDatasetReader(DatasetReader):
                                                 d['clss'],
                                                 d['sent_txt'],
                                                 d['disco_txt'],
-                                                d['tgt_txt'],
+                                                d['tgt_list_str'],
+                                                d['tgt_tok_list_list_str'],
                                                 d['d_labels'],
                                                 d['d_span'],
                                                 d['d_coref'],
@@ -191,15 +194,14 @@ class CNNDMDatasetReader(DatasetReader):
                 logger.info('Loading dataset from %s, number of examples: %d' %
                             (f, len(dataset)))
                 for d in dataset:
-                    # print("yielding from {}".format(f))
-                    # print(d)
                     yield self.text_to_instance(d['src'],
                                                 d['labels'],
                                                 d['segs'],
                                                 d['clss'],
                                                 d['sent_txt'],
                                                 d['disco_txt'],
-                                                d['tgt_txt'],
+                                                d['tgt_list_str'],
+                                                d['tgt_tok_list_list_str'],
                                                 d['d_labels'],
                                                 d['d_span'],
                                                 d['d_coref'],
@@ -211,6 +213,8 @@ class CNNDMDatasetReader(DatasetReader):
 
     def create_disco_coref(self, disco_coref, num_of_disco):
         disco_coref = [x for x in disco_coref if x[0] != x[1]]
+        coref_graph_as_list_of_tuple = [(x, x) for x in range(num_of_disco)]
+
         # DGL
         ##########
         # G = dgl.DGLGraph()
@@ -224,26 +228,28 @@ class CNNDMDatasetReader(DatasetReader):
         ############
 
         # handmade
-        empty = np.zeros((num_of_disco, num_of_disco), dtype=float)
+        # empty = np.zeros((num_of_disco, num_of_disco), dtype=float)
         #########
         for cor in disco_coref:
             x, y = cor
-            if x<num_of_disco and y<num_of_disco:
-                empty[x][y] += 1
-                empty[y][x] += 1
-        eye = np.eye(num_of_disco, dtype=float)
-        np_graph = eye + empty
-        coref_graph = ArrayField(np_graph, padding_value=0, dtype=np.float32)
+            if x < num_of_disco and y < num_of_disco:
+                coref_graph_as_list_of_tuple.append((x, y))
+                coref_graph_as_list_of_tuple.append((y, x))
+                # empty[x][y] += 1
+                # empty[y][x] += 1
+        # eye = np.eye(num_of_disco, dtype=float)
+        # np_graph = eye + empty
+        # coref_graph = ArrayField(np_graph, padding_value=0, dtype=np.float32)
         #########
 
-        return coref_graph
+        return coref_graph_as_list_of_tuple
 
     def create_disco_graph(self, disco_graph, num_of_disco: int) -> List[tuple]:
 
         ########
         # disco graph
         dis_graph_as_list_of_tuple = []
-        dis_graph = np.zeros((num_of_disco, num_of_disco), dtype=float)
+        # dis_graph = np.zeros((num_of_disco, num_of_disco), dtype=float)
         for rst in disco_graph:
             rst_src, rst_tgt = rst[0], rst[1]
             if rst_src < num_of_disco and rst_tgt < num_of_disco:
@@ -253,6 +259,19 @@ class CNNDMDatasetReader(DatasetReader):
 
         return dis_graph_as_list_of_tuple
 
+    def map_disco_to_sent(self, disco_span: List[tuple]):
+        map_to_sent = [0 for _ in range(len(disco_span))]
+        curret_sent = 0
+        current_idx = 1
+        for idx, disco in enumerate(disco_span):
+            if disco[0] == current_idx:
+                map_to_sent[idx] = curret_sent
+            else:
+                curret_sent += 1
+                map_to_sent[idx] = curret_sent
+            current_idx = disco[1]
+        return map_to_sent
+
     @overrides
     def text_to_instance(self,
                          doc_text: List[int],  # Must have. List[int]
@@ -261,7 +280,8 @@ class CNNDMDatasetReader(DatasetReader):
                          clss: List[int],
                          sent_txt: List[str],
                          disco_txt: List[str],
-                         tgt_txt: str,
+                         tgt_list_str: List[str],
+                         tgt_tok_list_list_str: List[List[str]],
                          disco_label,
                          disco_span,
                          disco_coref,
@@ -273,7 +293,7 @@ class CNNDMDatasetReader(DatasetReader):
         assert len(segs) > 0
         assert len(labels) > 0
         assert len(clss) > 0
-        if self.max_bpe<768:
+        if self.max_bpe < 768:
             clss = [x for x in clss if x < self.max_bpe]
             doc_text = doc_text[:self.max_bpe]
             segs = segs[:self.max_bpe]
@@ -286,6 +306,7 @@ class CNNDMDatasetReader(DatasetReader):
             disco_label = [l[:num_of_disco] for l in disco_label]
         else:
             actual_sent_len = len(sent_txt)
+
         num_of_disco = len(disco_label[0])
 
         text_tokens = [Token(text=self.bert_lut[x], idx=x) for x in doc_text][1:-1]
@@ -297,15 +318,13 @@ class CNNDMDatasetReader(DatasetReader):
         # sentence1 = "the quickest quick brown fox jumped over the lazy dog"
         # tokens1 = self.bert_tokenizer.tokenize(sentence1)
         if self.bertsum_oracle:
-            _tgt = tgt_txt.split('<q>')
-            _tgt = [tknzr.tokenize(x) for x in _tgt]
-            labels = original_greedy_selection(sent_txt[:actual_sent_len], _tgt, 3)
+            labels = original_greedy_selection(sent_txt[:actual_sent_len], tgt_tok_list_list_str, 3)
             z = np.zeros((1, actual_sent_len))
             for l in labels:
                 z[0][l] = 1
             labels = z
-        else:
-            labels = label_filter(labels)
+        # else:
+        #     labels = label_filter(labels)
 
         labels = ArrayField(np.asarray(labels), padding_value=-1, dtype=np.int)
         segs = ArrayField(np.asarray(segs), padding_value=0, dtype=np.int)  # TODO -1 or 0?
@@ -313,6 +332,8 @@ class CNNDMDatasetReader(DatasetReader):
 
         disco_label = label_filter(disco_label)
         disco_label = ArrayField(np.asarray(disco_label), padding_value=-1, dtype=np.int)
+
+        disco_map_to_sent: List[int] = self.map_disco_to_sent(disco_span)
         disco_span = ArrayField(np.asarray(disco_span), padding_value=-1, dtype=np.int)
 
         coref_graph = self.create_disco_coref(
@@ -326,10 +347,13 @@ class CNNDMDatasetReader(DatasetReader):
             "type": spilit_type,
             "sent_txt": sent_txt,
             "disco_txt": disco_txt,
-            "tgt_txt": " ".join(tknzr.tokenize(tgt_txt)),
+            "tgt_txt": "<q>".join(tgt_list_str),
             'disco_dep': disco_dep,
             'doc_id': doc_id,
-            'disco_rst_graph':dis_graph
+            'disco_rst_graph': dis_graph,
+            'disco_coref_graph': coref_graph,
+            'disco_map_to_sent': disco_map_to_sent
+
             # "coref_graph": coref_graph
         })
         fields = {"tokens": text_tokens,
@@ -339,7 +363,7 @@ class CNNDMDatasetReader(DatasetReader):
                   "meta_field": meta_field,
                   "disco_label": disco_label,
                   "disco_span": disco_span,
-                  'disco_coref_graph': coref_graph,
+                  # 'disco_coref_graph': coref_graph,
                   # 'disco_rst_graph': dis_graph
                   }
         return Instance(fields)

@@ -7,35 +7,7 @@ from data_preparation.doc_oracle import DocumentOracleDerivation
 
 flatten = lambda l: [item for sublist in l for item in sublist]
 
-
-def discourse_oracle(disco_txt, ):
-    # oracle labels
-    docs = [disc.get_readable_words_as_list() for disc in disco_bag]
-
-    # rewrite the docs to accomodate the dependency
-    modified_docs_w_deps = []
-    oracle_inclusion = []
-    for idx, disco in enumerate(disco_bag):
-        # tmp_txt, tmp_oracle_inclusion = copy.deepcopy(docs[idx]),[idx]
-        tmp_txt, tmp_oracle_inclusion = [], []
-        if disco.dep != []:
-            for _d in disco.dep:
-                if _d < len(docs):
-                    tmp_txt += docs[_d]
-                    tmp_oracle_inclusion.append(_d)
-            tmp_txt += copy.deepcopy(docs[idx])
-            tmp_oracle_inclusion.append(idx)
-            modified_docs_w_deps.append(" ".join(tmp_txt))
-            oracle_inclusion.append(tmp_oracle_inclusion)
-        else:
-            modified_docs_w_deps.append(
-                " ".join(docs[idx])
-            )
-            oracle_inclusion.append([idx])
-
-    yangliu_label = original_greedy_selection([x.split(" ") for x in modified_docs_w_deps], summary, 5)
-    # oracle_ids = greedy_selection(modified_docs_w_deps, summary, oracle_size)
-    return yangliu_labelf
+from typing import List
 
 
 class MSBertData():
@@ -51,26 +23,33 @@ class MSBertData():
         self.pad_vid = self.tokenizer.vocab['[PAD]']
         self.oracle_function = DocumentOracleDerivation(mixed_combination=True, tokenization=False)
 
-    def preprocess_sent(self, sent_bag, summary, oracle_size=3):
+    def preprocess_sent(self, sent_bag, summary, oracle_size=5):
         # TO have: src_subtoken_idxs [for bert encoder], labels[sent level],
         # segments_ids[for bert encoder],
         # cls_ids[for sent level],
         # entity coref linking edge [ sent level and discourse level]
         # src_txt, tgt_txt
-        docs = [s.raw_words for s in sent_bag]
+        docs: List[List[str]] = [s.raw_words for s in sent_bag]
         original_src_txts = []
-        multiple_labels = self.oracle_function.derive_doc_oracle([" ".join(x) for x in docs],
-                                                                 " ".join(flatten(summary)), "")
-        # yangliu_label = original_greedy_selection(docs, summary, 3)
+        # multiple_labels = self.oracle_function.derive_doc_oracle([" ".join(x) for x in docs],
+        #                                                          " ".join(flatten(summary)), "")
+
+        oracle_ids = original_greedy_selection(docs, summary, oracle_size)
+        all_labels = []
+        labels = [0] * len(docs)
+        for l in oracle_ids:
+            labels[l] = 1
+        all_labels.append(labels)  # just be compatible with multiple oracle
+
         # oracle_ids = greedy_selection(docs, summary, oracle_size)
         # oracle
 
-        all_labels = []
-        for k, v in multiple_labels.items():
-            labels = [0] * len(sent_bag)
-            for l in v:
-                labels[l] = 1
-            all_labels.append(labels)
+        # all_labels = []
+        # for k, v in multiple_labels.items():
+        #     labels = [0] * len(sent_bag)
+        #     for l in v:
+        #         labels[l] = 1
+        #     all_labels.append(labels)
 
         # labels = [0] * len(sent_bag)
         # for l in oracle_ids:
@@ -95,7 +74,7 @@ class MSBertData():
         tgt_txt = '<q>'.join([' '.join(tt) for tt in summary])
         return src_tok_index, all_labels, segments_ids, cls_ids, original_src_txts, tgt_txt
 
-    def preprocess_disc(self, disco_bag, summary):
+    def preprocess_disc(self, disco_bag, summary: List[List[str]]):
         # oracle labels
         docs = [disc.get_readable_words_as_list() for disc in disco_bag]
 
@@ -120,19 +99,29 @@ class MSBertData():
                 )
                 oracle_inclusion.append([idx])
 
-        multiple_labels = self.oracle_function.derive_doc_oracle(modified_docs_w_deps, " ".join(flatten(summary)), "")
-        # yangliu_label = original_greedy_selection([x.split(" ") for x in modified_docs_w_deps],summary,5)
-        # oracle_ids = greedy_selection(modified_docs_w_deps, summary, oracle_size)
+        # multiple_labels = self.oracle_function.derive_doc_oracle(modified_docs_w_deps,
+        #                                                          " ".join(flatten(summary)),
+        #                                                          "")
 
-        # labels = [0] * len(disco_bag)
+        # this is the Yangliu's method. Turns out to be pretty effective
+        oracle_ids = original_greedy_selection([x.split(" ") for x in modified_docs_w_deps], summary, 6)
         all_labels = []
-        for k, v in multiple_labels.items():
-            labels = [0] * len(disco_bag)
-            for l in v:
-                ora = oracle_inclusion[l]
-                for o in ora:
-                    labels[o] = 1
-            all_labels.append(labels)
+        labels = [0] * len(disco_bag)
+        for l in oracle_ids:
+            ora = oracle_inclusion[l]
+            for o in ora:
+                labels[o] = 1
+        all_labels.append(labels)  # just be compatible with multiple oracle
+
+        # all_labels = []
+        # for k, v in multiple_labels.items():
+        #     labels = [0] * len(disco_bag)
+        #     for l in v:
+        #         ora = oracle_inclusion[l]
+        #         for o in ora:
+        #             labels[o] = 1
+        #     all_labels.append(labels)
+
         # coref biiiigggg matrix
         coref_lookup_dict = {}
         # coref = [[False for _ in range(len(disco_bag))] for _ in range(len(disco_bag))]

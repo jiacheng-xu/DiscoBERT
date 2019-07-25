@@ -2,7 +2,7 @@
 bert_trainable:true,
 optimizer:"bert_adam",
 lr:1e-5,
-warmup:0.1,
+warmup:10000,
 iden : {type:"identity"},
 gcn:{type:"gcn", hdim:768},
 lstm:{type:"seq2seq",

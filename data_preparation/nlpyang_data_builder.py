@@ -17,6 +17,7 @@ from data_preparation.nlpyang_others_logging import logger
 from data_preparation.nlpyang_others_utils import clean
 from data_preparation.nlpyang_utils import _get_word_ngrams
 
+
 def cal_rouge(evaluated_ngrams, reference_ngrams):
     reference_count = len(reference_ngrams)
     evaluated_count = len(evaluated_ngrams)
@@ -36,6 +37,7 @@ def cal_rouge(evaluated_ngrams, reference_ngrams):
 
     f1_score = 2.0 * ((precision * recall) / (precision + recall + 1e-8))
     return {"f": f1_score, "p": precision, "r": recall}
+
 
 """
 bf3dd673d72edf70f431bb3a638a3cc124a3c3ae.story.doc.merge 
@@ -347,18 +349,20 @@ def read_bracket(bracket_file):
 
 
 import nltk
+from typing import List
 
 
-def load_sum(fname, path):
+def load_sum(fname, path) -> (List[str], List[List[str]]):
     f = os.path.join(path, fname + '.story.sum')
     with open(f) as fd:
         lines = fd.read().splitlines()
+    lower_lines = [l.lower() for l in lines if len(l) > 1]
 
-    lines = [nltk.word_tokenize(l) for l in lines if len(l) > 1]
-    lower_lines = []
-    for l in lines:
-        lower_lines.append([x.lower() for x in l])
-    return lower_lines
+    tok_lines = [nltk.word_tokenize(l) for l in lines if len(l) > 1]
+    toks = []
+    for l in tok_lines:
+        toks.append([x.lower() for x in l])
+    return lower_lines, toks
 
 
 def load_merge_bracket(fname, path):
@@ -524,7 +528,7 @@ def format_to_bert(chunk_path, oracle_mode, oracle_sent_num, min_src_ntokens=5, 
         print(a_lst)
         import random
         random.shuffle(a_lst)
-        # MS_formate_to_bert(a_lst[0])
+        MS_formate_to_bert(a_lst[0])
         _p = Pool(multiprocessing.cpu_count())
         for d in _p.imap(MS_formate_to_bert, a_lst):
             pass
@@ -638,9 +642,10 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
         print("Creating {}".format(save_path))
 
     corpus_mapping = {}
+    print("Loading URL mappings")
     for corpus_type in ['valid', 'test', 'train']:
         temp = []
-        if 'nyt' in map_urls_path:# if you want to add new key , here
+        if 'nyt' in map_urls_path:  # if you want to add new key , here
             for line in open(pjoin(map_urls_path, 'mapping_' + corpus_type + '.txt')):
                 temp.append(line.strip())
             print("Examples: {}".format(temp[0]))
@@ -649,7 +654,7 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
                 temp.append(hashhex(line.strip()))
             print("Examples: {}".format(temp[0]))
         corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
-
+    print("Finish loading URL mappings")
     train_files, valid_files, test_files = [], [], []
     for f in glob.glob(pjoin(seg_path, '*.merge')):
         # print("reading {}".format(f))
@@ -771,11 +776,12 @@ def format_processed_data(param):
     f, seg_path, tok_path, summary_path = param
     snlp_dict = load_snlp(f, tok_path)  # 'doc_id' 'coref' 'sent'
     span, dep, link = load_merge_bracket(f, seg_path)
-    target = load_sum(f, summary_path)
+    target_str, target_tok = load_sum(f, summary_path)
     return {'disco_span': span,
             'disco_dep': dep,
             'disco_link': link,
-            'tgt': target,
+            'tgt_list_str': target_str,
+            'tgt_tok_list_list_str': target_tok,
             'sent': snlp_dict['sent'],
             'doc_id': snlp_dict['doc_id'],
             'coref': snlp_dict['coref']

@@ -168,3 +168,33 @@ class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
     @overrides
     def is_bidirectional(self):
         return False
+
+
+def discourse_oracle(disco_txt, ):
+    # oracle labels
+    docs = [disc.get_readable_words_as_list() for disc in disco_bag]
+
+    # rewrite the docs to accomodate the dependency
+    modified_docs_w_deps = []
+    oracle_inclusion = []
+    for idx, disco in enumerate(disco_bag):
+        # tmp_txt, tmp_oracle_inclusion = copy.deepcopy(docs[idx]),[idx]
+        tmp_txt, tmp_oracle_inclusion = [], []
+        if disco.dep != []:
+            for _d in disco.dep:
+                if _d < len(docs):
+                    tmp_txt += docs[_d]
+                    tmp_oracle_inclusion.append(_d)
+            tmp_txt += copy.deepcopy(docs[idx])
+            tmp_oracle_inclusion.append(idx)
+            modified_docs_w_deps.append(" ".join(tmp_txt))
+            oracle_inclusion.append(tmp_oracle_inclusion)
+        else:
+            modified_docs_w_deps.append(
+                " ".join(docs[idx])
+            )
+            oracle_inclusion.append([idx])
+
+    yangliu_label = original_greedy_selection([x.split(" ") for x in modified_docs_w_deps], summary, 5)
+    # oracle_ids = greedy_selection(modified_docs_w_deps, summary, oracle_size)
+    return yangliu_labelf

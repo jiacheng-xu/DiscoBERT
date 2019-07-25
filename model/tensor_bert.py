@@ -83,8 +83,9 @@ from model.model_util import easy_post_processing
 @Model.register("tensor_bert")
 class TensorBertSum(Model):
     def __init__(self, vocab: Vocabulary,
-                 bert_model: Union[str, BertModel],
-                 bert_config_file: str,
+                 # bert_model: Union[str, BertModel],
+                 # bert_config_file: str,
+                 debug: bool,
                  bert_max_length: int,
                  multi_orac: bool,
                  graph_encoder: GraphEncoder,
@@ -96,19 +97,20 @@ class TensorBertSum(Model):
                  index: str = "bert",
                  dropout: float = 0.2,
                  tmp_dir: str = '/datadrive/tmp/',
+                 stop_by_word_count: bool = True,
                  use_pivot_decode: bool = False,
                  trigram_block=True,
                  min_pred_word: int = 30,
                  max_pred_word: int = 80,
                  step: int = 10,
-                 # min_pred_length: int = 6,
-                 # max_pred_length: int = 9,
+                 min_pred_unit: int = 6,
+                 max_pred_unit: int = 9,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         # super(TensorBertSum, self).__init__(vocab, regularizer)
         super(TensorBertSum, self).__init__(vocab)
-
-        self.embedder = PretrainedBertEmbedder('bert-base-uncased', requires_grad=True)
+        self.debug = debug
+        self.embedder = PretrainedBertEmbedder('bert-base-uncased', requires_grad=True, top_layer_only=True)
 
         if bert_max_length > 512:
             first_half = self.embedder.bert_model.embeddings.position_embeddings.weight
@@ -148,12 +150,12 @@ class TensorBertSum(Model):
 
         self.bert_model.config = BertConfig.from_json_file(bert_config_file)
         
-
         for param in self.bert_model.parameters():
             param.requires_grad = trainable
 
         in_features = self.bert_model.config.hidden_size
         """
+
         self._graph_encoder = graph_encoder
         in_features = 768
         self._index = index
@@ -164,14 +166,22 @@ class TensorBertSum(Model):
         self._loss = torch.nn.BCELoss(reduction='none')
         self._layer_norm = MaskedLayerNorm(768)
         self._multi_orac = multi_orac
+
         # ROUGES
-        slots = int((max_pred_word - min_pred_word) / step)
-        self.slot_num = slots
-        for i in range(slots):
-            setattr(self, "rouge_{}".format(i),
-                    PyrougeEvaluation(name='rouge_{}'.format(i), cand_path=tmp_dir, ref_path=tmp_dir,
-                                      path_to_valid=tmp_dir))
-            # self._rouge = PyrougeEvaluation(name='rouge', cand_path=tmp_dir, ref_path=tmp_dir, path_to_valid=tmp_dir)
+        self._stop_by_word_count = stop_by_word_count
+        if stop_by_word_count:
+            self.slot_num = int((max_pred_word - min_pred_word) / step)
+            for i in range(self.slot_num):
+                setattr(self, "rouge_{}".format(i),
+                        PyrougeEvaluation(name='rouge_{}'.format(i), cand_path=tmp_dir, ref_path=tmp_dir,
+                                          path_to_valid=tmp_dir))
+        else:
+            self._min_pred_unit = min_pred_unit
+            self._max_pred_unit = max_pred_unit
+            for i in range(min_pred_unit, max_pred_unit):
+                setattr(self, "rouge_{}".format(i),
+                        PyrougeEvaluation(name='rouge_{}'.format(i), cand_path=tmp_dir, ref_path=tmp_dir,
+                                          path_to_valid=tmp_dir))
         self._sigmoid = nn.Sigmoid()
         initializer(self._classification_layer)
 
@@ -223,7 +233,7 @@ class TensorBertSum(Model):
                 meta_field,
                 disco_label,
                 disco_span,
-                disco_coref_graph,
+                # disco_coref_graph,
                 # disco_rst_graph
                 ):
         if detect_nan(tokens['bert']) or detect_nan(labels) or detect_nan(segs) or detect_nan(clss):
@@ -276,8 +286,8 @@ class TensorBertSum(Model):
                                                                                  encoder_output_msk,
                                                                                  meta_field, 'disco_rst_graph')
             elif self._use_coref:
-                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,
-                                                                                 disco_coref_graph)
+                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,meta_field,
+                                                                                 'disco_coref_graph')
             else:
                 encoder_output_af_graph = encoder_output
             # sent_rep = self._layer_norm(sent_rep, sent_mask)
@@ -321,7 +331,7 @@ class TensorBertSum(Model):
                 # print(loss)
 
                 loss = raw_loss * encoder_output_msk.float()
-                if random.random() < 0.001:
+                if random.random() < 0.0001:
                     print(loss.data[0])
                 loss = torch.sum(loss)
                 output_dict["loss"] = loss
@@ -337,14 +347,16 @@ class TensorBertSum(Model):
             ##
             type = meta_field[0]['type']
             # print(len(self.rouge_0.pred_str_bag))
-            if type == 'valid' or type == 'test':
-                output_dict = self.decode(output_dict, trigram_block=self._trigram_block)
+            if (type == 'valid' or type == 'test') or (self.debug):
+                output_dict = self.decode(output_dict, trigram_block=self._trigram_block,
+                                          stop_by_word_cnt=self._stop_by_word_count)
             return output_dict
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor],
                trigram_block: bool = True,
                use_pivot_decode: bool = False,
+               stop_by_word_cnt: bool = False
                ):
         # probs: batch size, sent num, 2
         # masks: batch size, sent num [binary]
@@ -359,18 +371,24 @@ class TensorBertSum(Model):
         tuned_probs = tuned_probs.cpu().data.numpy()
 
         batch_size, sent_num = masks.shape
-        # slots = int((max_pred_word - min_pred_word) / step)
         for b in range(batch_size):
             pred_word_list_strs, tgt_str = decode_entrance(tuned_probs[b], meta[b], self._use_disco,
                                                            trigram_block,
-                                                           use_pivot_decode, self._min_pred_word,
+                                                           use_pivot_decode, stop_by_word_cnt,
+                                                           self._min_pred_word,
                                                            self._max_pred_word,
-                                                           self._step
+                                                           self._step,
+                                                           self._min_pred_unit,
+                                                           self._max_pred_unit
                                                            )
-            for l in range(self.slot_num):
-                getattr(self, 'rouge_{}'.format(l))(pred="<q>".join(pred_word_list_strs[l]),
-                                                    ref=tgt_str)
-            # self._rouge(pred="<q>".join(predictions), ref=tgt)
+            if self._stop_by_word_count:
+                for l in range(self.slot_num):
+                    getattr(self, 'rouge_{}'.format(l))(pred="<q>".join(pred_word_list_strs[l]),
+                                                        ref=tgt_str)
+            else:
+                for l in range(self._min_pred_unit, self._max_pred_unit):
+                    getattr(self, 'rouge_{}'.format(l))(pred="<q>".join(pred_word_list_strs[l]),
+                                                        ref=tgt_str)
         return output_dict
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
@@ -378,24 +396,34 @@ class TensorBertSum(Model):
         dict_of_rouge = {}
         # print(reset)
         if reset:
-            obj_list = [(getattr(self, 'rouge_{}'.format(l)),) for l in range(self.slot_num)]
+            if self._stop_by_word_count:
+                obj_list = [(getattr(self, 'rouge_{}'.format(l)),) for l in range(self.slot_num)]
+            else:
+                obj_list = [(getattr(self, 'rouge_{}'.format(l)),) for l in
+                            range(self._min_pred_unit, self._max_pred_unit)]
 
-            # print("start testing")
             pool = multiprocessing.Pool(processes=10)
             results = pool.starmap(run_eval_worker, obj_list)
 
-            for l in range(self.slot_num):
-                getattr(self, 'rouge_{}'.format(l)).reset()
+            if self._stop_by_word_count:
+
+                for l in range(self.slot_num):
+                    getattr(self, 'rouge_{}'.format(l)).reset()
+            else:
+                for l in range(self._min_pred_unit, self._max_pred_unit):
+                    getattr(self, 'rouge_{}'.format(l)).reset()
+
             for r in results:
                 dict_of_rouge = {**dict_of_rouge, **r}
-            # for i in pool.imap_unordered(f, range(10)):
-            # for l in range(self._min_pred_len, self._max_pred_len):
-            #     _d = getattr(self, 'rouge_{}'.format(l)).get_metric(reset)
-            #     dict_of_rouge = {**dict_of_rouge, **_d}
         else:
-            for l in range(self.slot_num):
-                _d = getattr(self, 'rouge_{}'.format(l)).get_metric(reset)
-                dict_of_rouge = {**dict_of_rouge, **_d}
+            if self._stop_by_word_count:
+                for l in range(self.slot_num):
+                    _d = getattr(self, 'rouge_{}'.format(l)).get_metric(reset)
+                    dict_of_rouge = {**dict_of_rouge, **_d}
+            else:
+                for l in range(self._min_pred_unit, self._max_pred_unit):
+                    _d = getattr(self, 'rouge_{}'.format(l)).get_metric(reset)
+                    dict_of_rouge = {**dict_of_rouge, **_d}
 
         # find best f1
         best_key, best_val = "", -1
@@ -436,7 +464,7 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError
 
-    finetune = False
+    finetune = True
 
     logger.info("AllenNLP version {}".format(allennlp.__version__))
 
@@ -446,7 +474,7 @@ if __name__ == '__main__':
 
     serialization_dir = tempfile.mkdtemp(prefix=os.path.join(root, 'tmp_exps'))
     if finetune:
-        model_arch = '/datadrive/GETSum/tmp_expss6t0dhyj'
+        model_arch = '/datadrive/GETSum/tmp_exps8b8br1d3'
         fine_tune_model_from_file_paths(model_arch,
                                         os.path.join(root, 'configs/baseline_bert.jsonnet'),
                                         # os.path.join(root, 'configs/finetune.jsonnet'),
