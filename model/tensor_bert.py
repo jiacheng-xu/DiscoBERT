@@ -474,7 +474,7 @@ if __name__ == '__main__':
 
     serialization_dir = tempfile.mkdtemp(prefix=os.path.join(root, 'tmp_exps'))
     if finetune:
-        model_arch = '/datadrive/GETSum/tmp_exps8b8br1d3'
+        model_arch = '/datadrive/GETSum/tmp_expsrt50l9f9'
         fine_tune_model_from_file_paths(model_arch,
                                         os.path.join(root, 'configs/baseline_bert.jsonnet'),
                                         # os.path.join(root, 'configs/finetune.jsonnet'),

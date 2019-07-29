@@ -7,8 +7,8 @@ local max_bpe=768;
 //local max_bpe=512;
 
 //local cuda_device = [0,1,2,3];
-local cuda_device = 0;
-//local cuda_device = 1;
+//local cuda_device = 0;
+local cuda_device = 1;
 //local cuda_device = 2;
 //local cuda_device = 3;
 
@@ -52,12 +52,12 @@ local max_pred_word=130;
 //local use_disco_graph = false;
 //local use_coref=false;
 
-//local use_disco_graph = false;
-//local use_coref=true;
+local use_disco_graph = false;
+local use_coref=true;
 
 
-local use_disco_graph = true;
-local use_coref=false;
+//local use_disco_graph = true;
+//local use_coref=false;
 
 //local agg_func=util.easy_graph_encoder;
 local agg_func=util.gcn;

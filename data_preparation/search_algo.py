@@ -3,7 +3,7 @@ import re, itertools
 from data_preparation.nlpyang_utils import _get_word_ngrams, _get_ngrams
 
 
-def cal_rouge(evaluated_ngrams: set, reference_ngrams: set, evaluated_len: int, reference_len: int):
+def dedup_cal_rouge(evaluated_ngrams: set, reference_ngrams: set, evaluated_len: int, reference_len: int):
     # reference_count = len(reference_ngrams)
     # evaluated_count = len(evaluated_ngrams)
 
@@ -24,10 +24,14 @@ def cal_rouge(evaluated_ngrams: set, reference_ngrams: set, evaluated_len: int, 
     return {"f": f1_score, "p": precision, "r": recall}
 
 
+
+
+
 def combination_selection(doc_sent_list, abstract_sent_list, summary_size):
     def _rouge_clean(s):
         return re.sub(r'[^a-zA-Z0-9 ]', '', s)
 
+    from data_preparation.nlpyang_data_builder import cal_rouge
     max_rouge = 0.0
     max_idx = (0, 0)
     abstract = sum(abstract_sent_list, [])
@@ -59,6 +63,23 @@ def combination_selection(doc_sent_list, abstract_sent_list, summary_size):
 
 
 from typing import List
+
+
+def appx_simple_rouge_estimator(sent: List[str], abs: List[List[str]]):
+
+    abstract: List[str] = sum(abs, [])
+    eval_len = len(sent)
+    ref_len = len(abstract)
+    evaluated_1grams = _get_word_ngrams(1, [sent])
+    reference_1grams = _get_word_ngrams(1, [abstract])
+    from data_preparation.nlpyang_data_builder import cal_rouge
+    evaluated_2grams = _get_word_ngrams(2, [sent])
+    reference_2grams = _get_word_ngrams(2, [abstract])
+    # rouge_1 = cal_rouge(evaluated_1grams, reference_1grams)['f']
+    rouge_1 = dedup_cal_rouge(evaluated_1grams, reference_1grams,eval_len,ref_len)['f']
+    rouge_2 = dedup_cal_rouge(evaluated_2grams, reference_2grams, eval_len, ref_len)['f']
+    # rouge_2 = cal_rouge(evaluated_2grams, reference_2grams)['f']
+    return rouge_1 + rouge_2
 
 
 def original_greedy_selection(doc_sent_list: List[List[str]], abstract_sent_list: List[List[str]], summary_size):

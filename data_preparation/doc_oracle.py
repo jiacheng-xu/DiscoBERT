@@ -8,7 +8,7 @@ from nltk.corpus import wordnet as wn
 import re
 from itertools import islice
 
-from data_preparation.search_algo import cal_rouge
+# from data_preparation.search_algo import cal_rouge
 
 try:
     from nltk.corpus import stopwords

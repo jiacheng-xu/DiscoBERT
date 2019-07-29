@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 #data_name='dailymail'
-data_name='cnn'
-#data_name='nyt'
+#data_name='cnn'
+data_name='nyt'
 
 #home_dir='/datadrive'
 home_dir='/scratch/cluster/jcxu'
@@ -10,7 +10,6 @@ segs='segs'
 tokenized='tokenized'
 chunk='chunk'
 
-#/scratch/cluster/jcxu/data/nyt
 
 #getsum='/datadrive/GETSum'
 #neueduseg='/datadrive/NeuralEDUSeg/src'
@@ -22,7 +21,7 @@ cd $getsum
 
 PYTHONPATH=./ python3 data_preparation/run_nlpyang_prepo.py -mode split -data_dir "$home_dir/data/$data_name" -rel_split_doc_path raw_doc -rel_split_sum_path sum
 
-#sleep 30m
+
 PYTHONPATH=./ python3 data_preparation/run_nlpyang_prepo.py -mode tokenize -data_dir "$home_dir/data/$data_name" -rel_split_doc_path raw_doc -rel_tok_path $tokenized -snlp_path  "$home_dir/stanford-corenlp-full-2018-10-05"
 
 # DPLP convert to CONLL format
