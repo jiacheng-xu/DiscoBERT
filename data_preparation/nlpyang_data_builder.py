@@ -353,7 +353,10 @@ from typing import List
 
 
 def load_sum(fname, path) -> (List[str], List[List[str]]):
-    f = os.path.join(path, fname + '.story.sum')
+    if 'nyt' in path:
+        f = os.path.join(path, fname + '.story.abs')
+    else:
+        f = os.path.join(path, fname + '.story.sum')
     with open(f) as fd:
         lines = fd.read().splitlines()
     lower_lines = [l.lower() for l in lines if len(l) > 1]
@@ -665,7 +668,7 @@ def format_to_lines(map_urls_path, seg_path, tok_path, shard_size, save_path, su
             test_files.append(real_name)
         elif (real_name in corpus_mapping['train']):
             train_files.append(real_name)
-
+    assert len(train_files) > 1000
     corpora = {'train': train_files, 'valid': valid_files, 'test': test_files}
     # print(len(corpora['train']))
     for corpus_type in ['train', 'valid', 'test']:

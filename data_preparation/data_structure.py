@@ -104,7 +104,7 @@ class MSBertData():
         #                                                          "")
 
         # this is the Yangliu's method. Turns out to be pretty effective
-        oracle_ids = original_greedy_selection([x.split(" ") for x in modified_docs_w_deps], summary, 6)
+        oracle_ids = original_greedy_selection([x.split(" ") for x in modified_docs_w_deps], summary, 10)
         all_labels = []
         labels = [0] * len(disco_bag)
         for l in oracle_ids:

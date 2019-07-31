@@ -464,7 +464,8 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError
 
-    finetune = True
+    # finetune = True
+    finetune = False
 
     logger.info("AllenNLP version {}".format(allennlp.__version__))
 

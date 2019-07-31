@@ -2,12 +2,15 @@ import torch
 import numpy as np
 import os
 import matplotlib.pyplot as plt
+from nltk.corpus import stopwords
+stop_words = set(stopwords.words('english'))
+
 
 # fig, ax = plt.subplots(figsize=(10,10))
 np.set_printoptions(precision=2)
 import seaborn as sns
-
 sns.set()
+
 
 if __name__ == '__main__':
     path = '/datadrive/data/cnndm/train'

@@ -16,7 +16,9 @@ chunk='chunk'
 
 getsum='/scratch/cluster/jcxu/GETSum'
 neueduseg='/scratch/cluster/jcxu/NeuralEDUSeg/src'
+url_path="$getsum/data_preparation/urls_$data_name"
 
+#parser.add_argument("-map_path", default='/datadrive/GETSum/data_preparation/urls_cnndm')
 cd $getsum
 
 PYTHONPATH=./ python3 data_preparation/run_nlpyang_prepo.py -mode split -data_dir "$home_dir/data/$data_name" -rel_split_doc_path raw_doc -rel_split_sum_path sum
@@ -41,12 +43,12 @@ PYTHONPATH=./  python3 "data_preparation/run_nlpyang_prepo.py" -mode rst -data_d
 cd $getsum
 PYTHONPATH=./  python3 "data_preparation/run_nlpyang_prepo.py" \
 -mode format_to_lines -data_dir "$home_dir/data/$data_name"  \
--rel_rst_seg_path $segs -rel_tok_path $tokenized -rel_save_path $chunk -rel_split_sum_path sum -data_name $data_name -map_path "/$getsum/data_preparation/urls"
+-rel_rst_seg_path $segs -rel_tok_path $tokenized -rel_save_path $chunk -rel_split_sum_path sum -data_name $data_name -map_path $url_path
 
 # format to bert
 
 PYTHONPATH=./  python3 "data_preparation/run_nlpyang_prepo.py" \
 -mode format_to_bert -data_dir "$home_dir/data/$data_name"  \
--rel_rst_seg_path $segs -rel_tok_path $tokenized -rel_save_path $chunk -rel_split_sum_path sum -data_name $data_name -map_path "/$getsum/data_preparation/urls"
+-rel_rst_seg_path $segs -rel_tok_path $tokenized -rel_save_path $chunk -rel_split_sum_path sum -data_name $data_name -map_path $url_path
 
 
