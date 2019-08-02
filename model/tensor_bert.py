@@ -88,6 +88,7 @@ class TensorBertSum(Model):
                  debug: bool,
                  bert_max_length: int,
                  multi_orac: bool,
+                 semantic_red_map: bool,
                  graph_encoder: GraphEncoder,
                  span_extractor: SpanExtractor,
                  trainable: bool = True,
@@ -286,7 +287,8 @@ class TensorBertSum(Model):
                                                                                  encoder_output_msk,
                                                                                  meta_field, 'disco_rst_graph')
             elif self._use_coref:
-                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,meta_field,
+                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,
+                                                                                 meta_field,
                                                                                  'disco_coref_graph')
             else:
                 encoder_output_af_graph = encoder_output

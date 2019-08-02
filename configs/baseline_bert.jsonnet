@@ -14,6 +14,7 @@ local cuda_device = 0;
 
 local stop_by_word_count=false;
 
+local semantic_red_map=true;
 local bertsum_oracle=false;
 //local bertsum_oracle=true;
 
@@ -130,6 +131,7 @@ local bert_vocab = global_root+"/bert_vocab";
 //        "bert_config_file":bert_config,
         "bert_max_length":max_bpe,
         "multi_orac":multi_orac,
+        "semantic_red_map":semantic_red_map,
         "trainable":util.bert_trainable,
         "dropout":dropout,
         "graph_encoder":agg_func,
