@@ -1,6 +1,10 @@
 # stopwords = pkgutil.get_data(__package__, 'smart_common_words.txt.txt')
 # stopwords = stopwords.decode('ascii').split('\n')
 # stopwords = {key.strip(): 1 for key in stopwords}
+import nltk
+from nltk.corpus import stopwords
+
+stop = set(stopwords.words('english'))
 
 
 def _get_ngrams(n, text):
@@ -21,7 +25,7 @@ def _get_ngrams(n, text):
     return ngram_set
 
 
-def _get_word_ngrams(n, sentences):
+def _get_word_ngrams(n, sentences, rm_stop_unigram=True):
     """Calculates word n-grams for multiple sentences.
     """
     assert len(sentences) > 0
@@ -30,5 +34,8 @@ def _get_word_ngrams(n, sentences):
     # words = _split_into_words(sentences)
 
     words = sum(sentences, [])
-    # words = [w for w in words if w not in stopwords]
+    if rm_stop_unigram and n == 1:
+        words = set(words)
+        words = list(words.difference(stop))
+        # words = [w for w in words if w not in stop]
     return _get_ngrams(n, words)

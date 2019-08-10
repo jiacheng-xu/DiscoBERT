@@ -1,6 +1,6 @@
 local util = import "utils.libsonnet";
 
-local debug=false;
+local debug=true;
 //local debug=true;
 
 local max_bpe=768;
@@ -15,6 +15,16 @@ local cuda_device = 0;
 local stop_by_word_count=false;
 
 local semantic_red_map=true;
+//local semantic_red_map_key = ['sal_f_20','sal_p_20','red_f_20','red_p_20','red_p_10','red_p_30'];
+local semantic_red_map_key = 'bin_red_map_f';
+local semantic_feedforard={
+                'input_dim': 768,
+                'hidden_dims': 768,
+                'activations': 'sigmoid',
+                'dropout':0.2,
+                'num_layers': 2,
+};
+local semantic_red_map_loss='bin';
 local bertsum_oracle=false;
 //local bertsum_oracle=true;
 
@@ -23,8 +33,14 @@ local multi_orac=false;
 
 local BATCH_SIZE=6;
 
-local use_disco=true;
-//local use_disco=false;
+//local use_disco=true;
+local use_disco=false;
+
+local matrix_attn={type:"bilinear",
+        activation:"sigmoid",
+        matrix_1_dim:768,
+        matrix_2_dim:768,
+        label_dim:1};
 
 local trigram_block=true;
 //local trigram_block=false;
@@ -52,15 +68,15 @@ local max_pred_word=130;
 //local use_disco=true;
 
 
-//local use_disco_graph = false;
-//local use_coref=false;
+local use_disco_graph = false;
+local use_coref=false;
 
 //local use_disco_graph = false;
 //local use_coref=true;
 
 
-local use_disco_graph = true;
-local use_coref=false;
+//local use_disco_graph = true;
+//local use_coref=false;
 
 //local agg_func=util.easy_graph_encoder;
 local agg_func=util.gcn;
@@ -104,6 +120,8 @@ local bert_vocab = global_root+"/bert_vocab";
     "dataset_reader": {
         "lazy": true,
         "type": "cnndm",
+        "semantic_red_map":semantic_red_map,
+        "semantic_red_map_key":semantic_red_map_key,
         "debug":debug,
         "bertsum_oracle":bertsum_oracle,
         "max_bpe":max_bpe,
@@ -132,9 +150,13 @@ local bert_vocab = global_root+"/bert_vocab";
         "bert_max_length":max_bpe,
         "multi_orac":multi_orac,
         "semantic_red_map":semantic_red_map,
+        "semantic_red_map_loss":semantic_red_map_loss,
+        "semantic_red_map_key":semantic_red_map_key,
         "trainable":util.bert_trainable,
         "dropout":dropout,
         "graph_encoder":agg_func,
+        "matrix_attn":matrix_attn,
+        "semantic_feedforard":semantic_feedforard,
 //        "pred_length":pred_len,
         "stop_by_word_count":stop_by_word_count,
         "use_disco":use_disco,

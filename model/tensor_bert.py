@@ -7,6 +7,7 @@ from allennlp.commands.train import train_model
 from allennlp.common import Params
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models.model import Model
+from allennlp.modules.matrix_attention.matrix_attention import MatrixAttention
 from allennlp.modules.token_embedders.bert_token_embedder import PretrainedBertModel, PretrainedBertEmbedder
 from allennlp.nn import RegularizerApplicator
 from allennlp.nn.initializers import InitializerApplicator
@@ -15,6 +16,7 @@ from pytorch_pretrained_bert.modeling import BertModel
 
 from model.archival_gnns import GraphEncoder
 from model.decoding_util import decode_entrance
+from model.sem_red_map import MapKiosk
 
 flatten = lambda l: [item for sublist in l for item in sublist]
 from torch.nn.functional import nll_loss
@@ -89,8 +91,12 @@ class TensorBertSum(Model):
                  bert_max_length: int,
                  multi_orac: bool,
                  semantic_red_map: bool,
+                 semantic_red_map_key: str,
+                 semantic_red_map_loss: str,
+                 semantic_feedforard: FeedForward,
                  graph_encoder: GraphEncoder,
                  span_extractor: SpanExtractor,
+                 matrix_attn: MatrixAttention,
                  trainable: bool = True,
                  use_disco: bool = True,
                  use_disco_graph=True,
@@ -198,23 +204,12 @@ class TensorBertSum(Model):
         self._max_pred_word = max_pred_word
         self._step = step
 
-    """
-    def tear_apart_input_for_bert(self, inps, segs, stride=100):
-        # if inps.size(-1) % 2 != 0:
-        #     pass
-        # print(inps.size())
-        first_inps = inps[:, :512]
-        second_inps = inps[:, 512 - stride:]
-        first_segs = segs[:, :512]
-        second_segs = segs[:, 512 - stride:]
-        first_output = self.embedder.forward(first_inps, first_segs)
-        sec_output = self.embedder.forward(second_inps, second_segs)[:, stride:, :]
-        # print(first_output.size())
-        # print(sec_output.size())
-        cat = torch.cat((first_output, sec_output), dim=1)
-        # print(cat.size())
-        return first_output
-    """
+        self._semantic_red_map = semantic_red_map
+        self._semantic_red_map_loss = semantic_red_map_loss
+        self._semantic_red_map_key = semantic_red_map_key
+        if semantic_red_map:
+            self.matrix_attn = matrix_attn
+            self._univec_feedforward = semantic_feedforard
 
     def transform_sent_rep(self, sent_rep, sent_mask):
         init_graphs = self._graph_encoder.convert_sent_tensors_to_graphs(sent_rep, sent_mask)
@@ -234,8 +229,11 @@ class TensorBertSum(Model):
                 meta_field,
                 disco_label,
                 disco_span,
-                # disco_coref_graph,
-                # disco_rst_graph
+
+                bin_red_map_f,
+                bin_red_map_p,
+                bin_sal_map_f,
+                bin_sal_map_p
                 ):
         if detect_nan(tokens['bert']) or detect_nan(labels) or detect_nan(segs) or detect_nan(clss):
             print("NAN")
@@ -245,18 +243,20 @@ class TensorBertSum(Model):
         #     print('real zero')
         with autograd.detect_anomaly():
             input_ids = tokens[self._index]
+            """
             ## old bert
-            input_mask = (input_ids != 0).long()
+            # input_mask = (input_ids != 0).long()
             # segs = segs.long()
             # encoded_layers, _ = self.bert_model(input_ids=input_ids,
             #                                     token_type_ids=segs,
             #                                     attention_mask=input_mask)
             ####### end of old bert
             # start of new bert
+            """
+            input_mask = (input_ids != 0).long()
             output = self.embedder.forward(input_ids=input_ids,
                                            token_type_ids=segs
                                            )
-            # print(output.size())
             top_vec = output
             # hardcode bert
             # top_vec = self.tear_apart_input_for_bert(input_ids, segs)
@@ -281,7 +281,6 @@ class TensorBertSum(Model):
                 encoder_output, encoder_output_msk = sent_rep, sent_mask
                 label_to_use = labels
 
-            # sent_rep = self._layer_norm(sent_rep, sent_mask)
             if self._use_disco_graph:
                 encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output,
                                                                                  encoder_output_msk,
@@ -292,72 +291,97 @@ class TensorBertSum(Model):
                                                                                  'disco_coref_graph')
             else:
                 encoder_output_af_graph = encoder_output
-            # sent_rep = self._layer_norm(sent_rep, sent_mask)
 
-            # batch_size, sent_num = sent_mask.shape
+            if self._semantic_red_map:
+                scores = self._sigmoid(self._classification_layer(self._dropout(
+                    self._univec_feedforward.forward(encoder_output_af_graph))))  # batch, sent_num, 1
+                scores = scores.squeeze(-1)
+                diag_scores = torch.diag_embed(scores)
+                diag_mask = (diag_scores > 0).float()
 
-            scores = self._sigmoid(self._classification_layer(self._dropout(encoder_output_af_graph)))
-            scores = scores.squeeze(-1)
-            # scores = scores + (sent_mask.float() - 1)
-            # logits = self._transfrom_layer(logits)
-            # probs = torch.nn.functional.softmax(logits, dim=-1)
+                scores_matrix = self.matrix_attn.forward(encoder_output_af_graph,
+                                                         encoder_output_af_graph)  # batch, sent_num, sent_num
+                # fill the diag of scores matrix with the uni scores
+                # the salience map's diag is R[x], all other cells are R[x +y]
+                scores_matrix = diag_mask * diag_scores + (1 - diag_mask) * scores_matrix
 
-            output_dict = {"scores": scores,
-                           # "probs": probs,
-                           "mask": encoder_output_msk,
-                           # 'mask': sent_mask,
-                           # 'disco_mask': disco_mask,
-                           "meta": meta_field}
+                output_dict = {"scores": scores,
+                               "scores_matrix": scores_matrix,
+                               "mask": encoder_output_msk,
+                               # 'mask': sent_mask,
+                               # 'disco_mask': disco_mask,
+                               "meta": meta_field}
 
-            if label_to_use is not None:
-                # logits: batch size, sent num
-                # labels: batch size, oracle_num, sent num
-                # sent_mask: batch size, sent num
-                # flatten_scores = scores.view(batch_size * sent_num)
-                # flatten_labels = labels.view(batch_size * sent_num).float()
-                # print(scores)
-                # print(labels)
-                if self._multi_orac:
-                    seq_len = scores.size()[-1]
-                    scores = scores.unsqueeze(1)
-                    encoder_output_msk = encoder_output_msk.unsqueeze(1)
-                    scores = scores.expand_as(label_to_use).contiguous().view(-1, seq_len)
-                    encoder_output_msk = encoder_output_msk.expand_as(label_to_use).contiguous().view(-1, seq_len)
-                    label_to_use = label_to_use.view(-1, seq_len)
+                label_map = locals()[self._semantic_red_map_key]
+                label_map_mask = label_map >= 0
+                label_map = torch.nn.functional.relu(label_map)
+
+                if self._semantic_red_map_loss == 'bin':
+                    raw_loss = self._loss(scores_matrix, label_map.float())
+                    loss = raw_loss * label_map_mask.float()
+
+                    if random.random() < 0.0001:
+                        print(loss.data[0])
+                    loss = torch.sum(loss)
+                    output_dict["loss"] = loss
+
+                elif self._semantic_red_map_loss == 'mag':
+                    pass
                 else:
-                    label_to_use = label_to_use[:, 0, :]
-                label_to_use = torch.nn.functional.relu(label_to_use)
-                raw_loss = self._loss(scores, label_to_use.float())
-                # print(loss.shape)
-                # print(sent_mask.shape)
-                # print(loss)
+                    raise NotImplementedError
+            else:
 
-                loss = raw_loss * encoder_output_msk.float()
-                if random.random() < 0.0001:
-                    print(loss.data[0])
-                loss = torch.sum(loss)
-                output_dict["loss"] = loss
-                # self._accuracy(flatten_logits, flatten_labels, mask=sent_mask.view(-1))
-            # print(output_dict)
+                scores = self._sigmoid(self._classification_layer(self._dropout(encoder_output_af_graph)))
+                scores = scores.squeeze(-1)
+                # scores = scores + (sent_mask.float() - 1)
+                # logits = self._transfrom_layer(logits)
+                # probs = torch.nn.functional.softmax(logits, dim=-1)
 
-            ##
-            # for name, param in self.named_parameters():
-            #     print(name)
-            # print(param)
-            # if param.grad is not None:
-            # print(param.grad[0])
-            ##
+                output_dict = {"scores": scores,
+                               # "probs": probs,
+                               "mask": encoder_output_msk,
+                               # 'mask': sent_mask,
+                               # 'disco_mask': disco_mask,
+                               "meta": meta_field}
+
+                if label_to_use is not None:
+                    # logits: batch size, sent num
+                    # labels: batch size, oracle_num, sent num
+                    # sent_mask: batch size, sent num
+                    if self._multi_orac:
+                        seq_len = scores.size()[-1]
+                        scores = scores.unsqueeze(1)
+                        encoder_output_msk = encoder_output_msk.unsqueeze(1)
+                        scores = scores.expand_as(label_to_use).contiguous().view(-1, seq_len)
+                        encoder_output_msk = encoder_output_msk.expand_as(label_to_use).contiguous().view(-1, seq_len)
+                        label_to_use = label_to_use.view(-1, seq_len)
+                    else:
+                        label_to_use = label_to_use[:, 0, :]
+                    label_to_use = torch.nn.functional.relu(label_to_use)
+                    raw_loss = self._loss(scores, label_to_use.float())
+                    # print(loss.shape)
+                    # print(sent_mask.shape)
+                    # print(loss)
+
+                    loss = raw_loss * encoder_output_msk.float()
+                    if random.random() < 0.0001:
+                        print(loss.data[0])
+                    loss = torch.sum(loss)
+                    output_dict["loss"] = loss
+
             type = meta_field[0]['type']
             # print(len(self.rouge_0.pred_str_bag))
             if (type == 'valid' or type == 'test') or (self.debug):
-                output_dict = self.decode(output_dict, trigram_block=self._trigram_block,
+                output_dict = self.decode(output_dict,
+                                          trigram_block=self._trigram_block,
+                                          use_matrix_decode=self._semantic_red_map,
                                           stop_by_word_cnt=self._stop_by_word_count)
             return output_dict
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor],
                trigram_block: bool = True,
-               use_pivot_decode: bool = False,
+               use_matrix_decode: bool = False,
                stop_by_word_cnt: bool = False
                ):
         # probs: batch size, sent num, 2
@@ -367,16 +391,25 @@ class TensorBertSum(Model):
         meta = output_dict['meta']
         # expanded_msk = masks.unsqueeze(2).expand_as(probs)
         # expanded_msk = masks.unsqueeze(2)
-        tuned_probs = scores + (masks.float() - 1) * 10
-        # scores = scores + (sent_mask.float() - 1)
-        # tuned_probs = tuned_probs.cpu().data.numpy()[:, :, 1]
-        tuned_probs = tuned_probs.cpu().data.numpy()
+
+        if use_matrix_decode:
+            scores_matrix = output_dict['scores_matrix']
+            masks_matrix = masks.unsqueeze(2).expand_as(scores_matrix)
+            tuned_scores_matrix = scores_matrix + (masks_matrix.float() - 1) * 10
+            tuned_probs = tuned_scores_matrix.cpu().data.numpy()
+        else:
+            tuned_probs = scores + (masks.float() - 1) * 10
+            # scores = scores + (sent_mask.float() - 1)
+            # tuned_probs = tuned_probs.cpu().data.numpy()[:, :, 1]
+            tuned_probs = tuned_probs.cpu().data.numpy()
 
         batch_size, sent_num = masks.shape
         for b in range(batch_size):
+
             pred_word_list_strs, tgt_str = decode_entrance(tuned_probs[b], meta[b], self._use_disco,
                                                            trigram_block,
-                                                           use_pivot_decode, stop_by_word_cnt,
+                                                           use_matrix_decode,
+                                                           stop_by_word_cnt,
                                                            self._min_pred_word,
                                                            self._max_pred_word,
                                                            self._step,

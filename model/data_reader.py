@@ -19,6 +19,8 @@ import sys
 import numpy
 from nltk.tokenize import TweetTokenizer
 
+from model.sem_red_map import MapKiosk
+
 tknzr = TweetTokenizer()
 from data_preparation.search_algo import original_greedy_selection
 
@@ -104,12 +106,15 @@ from pytorch_pretrained_bert.tokenization import BertTokenizer
 @DatasetReader.register("cnndm")
 class CNNDMDatasetReader(DatasetReader):
     def __init__(self,
+
                  lazy: bool = True,
                  bert_model_name: str = 'bert-base-uncased',
                  max_bpe: int = None,
                  token_indexers: Dict[str, TokenIndexer] = PretrainedBertIndexer("bert-base-uncased"),
                  debug: bool = False,
                  bertsum_oracle: bool = True,
+                 semantic_red_map: bool = True,
+                 semantic_red_map_key: List[str] = None
                  ) -> None:
         super().__init__(lazy=lazy)
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
@@ -125,6 +130,11 @@ class CNNDMDatasetReader(DatasetReader):
         self.max_bpe = max_bpe
         self.train_pts = []
         self.bertsum_oracle = bertsum_oracle
+
+        self.semantic_red_map = semantic_red_map
+        if semantic_red_map:
+            self.map_kiosk = MapKiosk(semantic_red_map_key)
+
         random.seed(1112)
 
     def boil_pivot_table(self, sent_txt):
@@ -312,8 +322,15 @@ class CNNDMDatasetReader(DatasetReader):
         text_tokens = [Token(text=self.bert_lut[x], idx=x) for x in doc_text][1:-1]
         text_tokens = TextField(text_tokens, self._token_indexers
                                 )
+
         # sentence
-        self.boil_pivot_table(sent_txt, )
+        if self.semantic_red_map:
+            maps = self.map_kiosk.single_entry_entrance(sent_txt[:actual_sent_len], tgt_tok_list_list_str)
+            for k, v in maps.items():
+                _v = ArrayField(np.asarray(v), padding_value=-1, dtype=np.int)
+                maps[k] = _v
+        else:
+            maps = {}
         #            2   3    4   3     5     6   8      9    2   14   12
         # sentence1 = "the quickest quick brown fox jumped over the lazy dog"
         # tokens1 = self.bert_tokenizer.tokenize(sentence1)
@@ -366,6 +383,8 @@ class CNNDMDatasetReader(DatasetReader):
                   # 'disco_coref_graph': coref_graph,
                   # 'disco_rst_graph': dis_graph
                   }
+
+        fields = {**maps, **fields}
         return Instance(fields)
 
 
