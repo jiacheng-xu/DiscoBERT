@@ -1,22 +1,26 @@
 local util = import "utils.libsonnet";
 
-local debug=true;
+local debug=false;
 //local debug=true;
 
 local max_bpe=768;
 //local max_bpe=512;
 
 //local cuda_device = [0,1,2,3];
-local cuda_device = 0;
+//local cuda_device = 0;
 //local cuda_device = 1;
 //local cuda_device = 2;
-//local cuda_device = 3;
+local cuda_device = 3;
 
 local stop_by_word_count=false;
 
 local semantic_red_map=true;
 //local semantic_red_map_key = ['sal_f_20','sal_p_20','red_f_20','red_p_20','red_p_10','red_p_30'];
-local semantic_red_map_key = 'bin_red_map_f';
+//local semantic_red_map_key = 'bin_red_map_f';
+//local semantic_red_map_key = 'bin_red_map_p';
+//local semantic_red_map_key = 'bin_sal_map_f';
+local semantic_red_map_key = 'bin_sal_map_p';
+
 local semantic_feedforard={
                 'input_dim': 768,
                 'hidden_dims': 768,
@@ -42,11 +46,11 @@ local matrix_attn={type:"bilinear",
         matrix_2_dim:768,
         label_dim:1};
 
-local trigram_block=true;
-//local trigram_block=false;
+//local trigram_block=true;
+local trigram_block=false;
 
-local min_pred_unit=2;
-local max_pred_unit=8;
+local min_pred_unit=1;
+local max_pred_unit=6;
 
 local dropout=0.2;
 local num_of_batch_per_train_epo= if debug then 22 else  3088;
@@ -58,7 +62,7 @@ local num_of_batch_per_train_epo= if debug then 22 else  3088;
 local global_root = '/datadrive/GETSum';
 //local root = '/datadrive/data/cnndm';
 
-local root = '/datadrive/data/nyt';
+local root = '/datadrive/data/cnndm';
 
 
 local min_pred_word=40;

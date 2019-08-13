@@ -296,6 +296,7 @@ class TensorBertSum(Model):
                 scores = self._sigmoid(self._classification_layer(self._dropout(
                     self._univec_feedforward.forward(encoder_output_af_graph))))  # batch, sent_num, 1
                 scores = scores.squeeze(-1)
+
                 diag_scores = torch.diag_embed(scores)
                 diag_mask = (diag_scores > 0).float()
 

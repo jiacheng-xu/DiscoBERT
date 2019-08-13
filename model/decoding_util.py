@@ -242,9 +242,15 @@ def matrix_decode(sel_indexes: np.ndarray,
     valid_len = len(source_txt)
 
     sel_indexes = sel_indexes[:valid_len, :valid_len]
-    diag = sel_indexes.diagonal()
 
-    np.fliplr(sel_indexes)
+    diag = sel_indexes.diagonal()  # diag is the diagnoal of the matrix , stands for single scores
+
+    flipped_sel_indexes = np.rot90(np.fliplr(sel_indexes))
+    triu_mask = np.ones((valid_len, valid_len))
+    iu1 = np.triu_indices(valid_len, 1)
+    triu_mask[iu1] = 0
+    final_sel_indexes = sel_indexes * triu_mask + (1 - triu_mask) * flipped_sel_indexes
+
     while True:
 
         hoop_cnt += 1
@@ -257,23 +263,104 @@ def matrix_decode(sel_indexes: np.ndarray,
                 current_indexes.append([sel_i])
                 decoded_indexes.append([sel_i])
                 continue
+
+            # look at the matrix
+            decoded_idx = decoded_indexes[-1]
+            # sum over all decoded_idx with weight of diag
+            tmp = np.zeros((valid_len))
+            for _d in decoded_idx:
+                tmp += final_sel_indexes[_d] * diag[_d]
+            tmp[decoded_idx] = -10
+            sel_i = int(np.argsort(tmp)[::-1][0])
+            if use_disco:
+                candidates = _decode_disco(sel_i, dependency_dict)
             else:
-                # look at the matrix
-                decoded_idx = decoded_indexes[-1]
+                candidates = _decode_sent(sel_i)
+            candidates.sort()
 
-
-
-
-
-
+            cur_index = current_indexes[-1]
+            # there is some overlapping
+            if not set(candidates).isdisjoint(set(cur_index)):
+                if set(candidates).issubset(set(cur_index)):
+                    # nothing changed
+                    nothing_changed = True
+                else:
+                    # there is some overlap
+                    if trigram_block:
+                        # # compare c in candidates with current traigram
+                        # if add, update the current trigram
+                        tmp = cur_index
+                        _len = len(tmp)
+                        for c in candidates:
+                            if c in cur_index:
+                                continue
+                            c_trigram = extract_n_grams(" ".join(source_txt[c]))
+                            if current_trigrams.isdisjoint(c_trigram):
+                                # current_indexes[jdx] = list({c}.union(set(cur_index)))
+                                if c not in tmp:
+                                    tmp.append(c)
+                                current_trigrams.update(c_trigram)
+                        if len(tmp) > _len:
+                            current_indexes.append(list(set(tmp).union(set(cur_index))))
+                            decoded_indexes.append(list({sel_i}.union(set(decoded_idx))))
+                        else:
+                            nothing_changed = True
+                    else:
+                        # don't consider trigram
+                        current_indexes.append(list(set(candidates).union(set(cur_index))))
+                        decoded_indexes.append(list({sel_i}.union(set(decoded_idx))))
+            else:  # there is NO overlapping
+                if trigram_block:
+                    # compare c in candidates with current traigram
+                    # if add, update the current trigram
+                    tmp = []
+                    for c in candidates:
+                        c_trigram = extract_n_grams(" ".join(source_txt[c]))
+                        if current_trigrams.isdisjoint(c_trigram):
+                            tmp.append(c)
+                            current_trigrams.update(c_trigram)
+                    if len(tmp) > 0:
+                        current_indexes.append(list(set(tmp).union(set(cur_index))))
+                        decoded_indexes.append(list({sel_i}.union(set(decoded_idx))))
+                    else:
+                        nothing_changed = True
+                else:
+                    current_indexes.append(list(set(candidates).union(set(cur_index))))
+                    decoded_indexes.append(list({sel_i}.union(set(decoded_idx))))
+            if hoop_cnt > 20:
+                break
+            if nothing_changed:
+                continue
+            if len(current_indexes) > max_pred_unit + 1:
+                break
 
         except IndexError:
+            print("Index Error")
             logger.warning("Index Error")
-    # LOOP
 
-    print("decode")
-    pass
+    current_indexes = current_indexes[1:]
+    assert len(current_indexes) > 0
+    # backup if pred_indexes_lists is not enough
+    while len(current_indexes) < max_pred_unit:
+        current_indexes.append(current_indexes[-1])
 
+    # split sentences
+    for idx, pred in enumerate(current_indexes):
+        pred.sort()
+        splited = split_sentence_according_to_id(pred, use_disco, disco_map_2_sent)
+        _t = []
+        for sp in splited:
+            sp.sort()
+            x = flatten([source_txt[s] for s in sp])
+            _t.append(TreebankWordDetokenizer().detokenize(easy_post_processing(x)))
+            # _t.append(" ".join(easy_post_processing(x)))
+        pred_word_lists.append(_t)
+    # for idx, pred_word in enumerate(pred_word_lists):
+    #     pred_word_strs.append(
+    #         " ".join(easy_post_processing(pred_word))
+    #     )
+    # print(current_indexes)
+    return pred_word_lists
 
 def decode_entrance(prob, meta_data, use_disco, trigram_block: bool = True,
                     use_matrix_decode: bool = False, stop_by_word_cnt: bool = True,

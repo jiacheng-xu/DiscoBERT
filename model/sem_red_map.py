@@ -165,7 +165,7 @@ class MapKiosk():
         for i in range(l):
             for j in range(i + 1):
                 if i == j:
-                    redundancy_map[i][j] = 1
+                    redundancy_map[i][j] = -1
                     continue
                 max_of_individual = max(sal_map[i][i], sal_map[j][j])
                 if max_of_individual > 0:
