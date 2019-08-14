@@ -11,6 +11,20 @@ def resolve_dependency(dep):
     return dic
 
 
+def fill_upper_right_matrix(inp_mat, valid_len: int = None):
+    if type(inp_mat) == list:
+        inp_mat = np.asarray(inp_mat)
+    if valid_len == None:
+        valid_len = inp_mat.shape[0]
+
+    flipped_inp_mat = np.rot90(np.fliplr(inp_mat))
+    triu_mask = np.ones((valid_len, valid_len))
+    iu1 = np.triu_indices(valid_len, 1)
+    triu_mask[iu1] = 0
+    final_output = inp_mat * triu_mask + (1 - triu_mask) * flipped_inp_mat
+    return final_output
+
+
 from nltk.tokenize.treebank import TreebankWordDetokenizer
 
 from collections import deque
@@ -227,12 +241,136 @@ def std_decode(stop_by_word_cnt, sel_indexes, use_disco, source_txt, dependency_
 import numpy as np
 
 
+def universal_decoding_interface(scores,
+                                 sem_red_map,
+                                 use_disco: bool,
+                                 source_txt: List[List[str]],
+                                 dependency_dict,
+                                 trigram_block: bool,
+                                 max_pred_unit: int,
+                                 disco_map_2_sent: List = None,
+                                 threshold: float = 0.1
+                                 ):
+    pred_word_lists = []
+    current_trigrams = set()
+    current_indexes: List[List[int]] = [[]]
+    hoop_cnt = 0
+    valid_len = len(source_txt)
+    scores = scores[:valid_len]
+    if sem_red_map is not None:
+        sem_red_map = sem_red_map[:valid_len, :valid_len]
+
+    while True:
+
+        hoop_cnt += 1
+        if hoop_cnt > 20:
+            break
+        try:
+            if len(current_indexes) <= 1:
+                sel_i = np.argmax(scores)
+                scores[sel_i] -= 10
+                current_indexes.append([sel_i])
+                continue
+            sel_i = np.argmax(scores)  # this is the candidate
+            if scores[sel_i] < 0.001:
+                break
+            if use_disco:
+                candidates = _decode_disco(sel_i, dependency_dict)
+            else:
+                candidates = _decode_sent(sel_i)
+
+            candidates.sort()
+            cur_index = current_indexes[-1]
+
+            if set(candidates).issubset(set(cur_index)):
+                # nothing changed
+                continue
+            else:
+                # there is some overlap
+                if trigram_block:
+                    newstuff, current_trigrams = search_trigram_blocking(candidates, cur_index,
+                                                                         current_trigrams,
+                                                                         source_txt)
+                    if newstuff is not None:
+                        current_indexes.append(newstuff)
+                elif sem_red_map is not None:
+                    newstuff = search_sem_red(candidates, cur_index, sem_red_map, threshold)
+                    if newstuff is not None:
+                        current_indexes.append(newstuff)
+                else:
+                    current_indexes.append(list(set(candidates).union(set(cur_index))))
+            if len(current_indexes) > max_pred_unit + 1:
+                break
+
+
+
+        except IndexError:
+            print("Index Error")
+            logger.warning("Index Error")
+
+    current_indexes = current_indexes[1:]
+    assert len(current_indexes) > 0
+    # backup if pred_indexes_lists is not enough
+    while len(current_indexes) < max_pred_unit:
+        current_indexes.append(current_indexes[-1])
+
+    # split sentences
+    for idx, pred in enumerate(current_indexes):
+        pred.sort()
+        splited = split_sentence_according_to_id(pred, use_disco, disco_map_2_sent)
+        _t = []
+        for sp in splited:
+            sp.sort()
+            x = flatten([source_txt[s] for s in sp])
+            _t.append(TreebankWordDetokenizer().detokenize(easy_post_processing(x)))
+            # _t.append(" ".join(easy_post_processing(x)))
+        pred_word_lists.append(_t)
+    return pred_word_lists
+
+
+def search_sem_red(candidates, cur_index, sem_red_map, threshold):
+    tmp = cur_index
+    _len = len(tmp)
+    sem_red_map[:, cur_index] = 10
+    rows = sem_red_map[cur_index]
+    out = np.amin(rows, axis=0)
+    for c in candidates:
+        min_c = out[c]
+        if min_c >= threshold and c not in cur_index:
+            tmp.append(c)
+    if len(tmp) > _len:
+        return list(set(tmp).union(set(cur_index)))
+    else:
+        return None
+
+
+def search_trigram_blocking(candidates, cur_index, current_trigrams, source_txt):
+    tmp = cur_index
+    _len = len(tmp)
+    for c in candidates:
+        if c in cur_index:
+            continue
+        c_trigram = extract_n_grams(" ".join(source_txt[c]))
+        if current_trigrams.isdisjoint(c_trigram):
+            # current_indexes[jdx] = list({c}.union(set(cur_index)))
+            if c not in tmp:
+                tmp.append(c)
+            current_trigrams.update(c_trigram)
+    if len(tmp) > _len:
+        # current_indexes.append(list(set(tmp).union(set(cur_index))))
+        return list(set(tmp).union(set(cur_index))), current_trigrams
+    else:
+        return None, current_trigrams
+
+
 def matrix_decode(sel_indexes: np.ndarray,
-                  use_disco: bool, source_txt: List[List[str]],
+                  use_disco: bool,
+                  source_txt: List[List[str]],
                   dependency_dict,
                   trigram_block: bool,
                   max_pred_unit: int,
-                  disco_map_2_sent: List = None):
+                  disco_map_2_sent: List = None
+                  ):
     # we also show with trigram and w/o trigram
     pred_word_lists = []
     current_trigrams = set()
@@ -362,10 +500,15 @@ def matrix_decode(sel_indexes: np.ndarray,
     # print(current_indexes)
     return pred_word_lists
 
-def decode_entrance(prob, meta_data, use_disco, trigram_block: bool = True,
-                    use_matrix_decode: bool = False, stop_by_word_cnt: bool = True,
+
+def decode_entrance(prob, prob_mat, meta_data, use_disco, trigram_block: bool = True,
+                    sem_red_map: bool = False,
+                    pair_oracle: bool = False,
+                    stop_by_word_cnt: bool = True,
                     min_pred_word: int = 40, max_pred_word: int = 80,
-                    step: int = 10, min_pred_unit: int = 3, max_pred_unit: int = 6
+                    step: int = 10, min_pred_unit: int = 3,
+                    max_pred_unit: int = 6,
+                    threshold=0.05
                     ):
     tgt = meta_data['tgt_txt']
 
@@ -378,14 +521,17 @@ def decode_entrance(prob, meta_data, use_disco, trigram_block: bool = True,
         src = meta_data['sent_txt']
         dep, dep_dic = None, None
 
-    if use_matrix_decode:
+    if sem_red_map:
         if stop_by_word_cnt:
             raise NotImplementedError
         else:
-            pred_word_strs = matrix_decode(prob, use_disco, src, dep_dic,
-                                           trigram_block,
-                                           max_pred_unit, disco_map_2_sent)
 
+            pred_word_strs = universal_decoding_interface(
+                prob, prob_mat, use_disco, src, dep_dic,
+                trigram_block,
+                max_pred_unit, disco_map_2_sent, threshold
+
+            )
     else:
         sel_indexes = np.argsort(-prob)
         if stop_by_word_cnt:

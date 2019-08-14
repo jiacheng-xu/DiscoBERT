@@ -7,19 +7,23 @@ local max_bpe=768;
 //local max_bpe=512;
 
 //local cuda_device = [0,1,2,3];
-//local cuda_device = 0;
+local cuda_device = 0;
 //local cuda_device = 1;
 //local cuda_device = 2;
-local cuda_device = 3;
+//local cuda_device = 3;
 
 local stop_by_word_count=false;
 
 local semantic_red_map=true;
-//local semantic_red_map_key = ['sal_f_20','sal_p_20','red_f_20','red_p_20','red_p_10','red_p_30'];
-//local semantic_red_map_key = 'bin_red_map_f';
+local semantic_red_map_loss='mag';
+local semantic_red_map_key = 'p';
+//local semantic_red_map_key = 'f';
+
 //local semantic_red_map_key = 'bin_red_map_p';
 //local semantic_red_map_key = 'bin_sal_map_f';
-local semantic_red_map_key = 'bin_sal_map_p';
+//local semantic_red_map_key = 'bin_sal_map_p';
+
+
 
 local semantic_feedforard={
                 'input_dim': 768,
@@ -28,9 +32,13 @@ local semantic_feedforard={
                 'dropout':0.2,
                 'num_layers': 2,
 };
-local semantic_red_map_loss='bin';
+
+
 local bertsum_oracle=false;
 //local bertsum_oracle=true;
+
+//local pair_oracle=true;
+local pair_oracle=false;
 
 local multi_orac=false;
 //local multi_orac=true;
@@ -40,20 +48,23 @@ local BATCH_SIZE=6;
 //local use_disco=true;
 local use_disco=false;
 
-local matrix_attn={type:"bilinear",
+local matrix_attn={
+        type:"linear",
+        combination:'x,y,x*y,x+y,x-y',
         activation:"sigmoid",
-        matrix_1_dim:768,
-        matrix_2_dim:768,
-        label_dim:1};
-
+        tensor_1_dim:768,
+        tensor_2_dim:768,
+//        label_dim:1
+        };
+local threshold_red_map = [0.05, 0.1, 0.15, 0.2];
 //local trigram_block=true;
 local trigram_block=false;
 
 local min_pred_unit=1;
-local max_pred_unit=6;
+local max_pred_unit=4;
 
 local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 22 else  3088;
+local num_of_batch_per_train_epo= if debug then 22 else  588;
 
 
 //local global_root = '/scratch/cluster/jcxu/GETSum';
@@ -62,7 +73,7 @@ local num_of_batch_per_train_epo= if debug then 22 else  3088;
 local global_root = '/datadrive/GETSum';
 //local root = '/datadrive/data/cnndm';
 
-local root = '/datadrive/data/cnndm';
+local root = '/datadrive/data/cnn';
 
 
 local min_pred_word=40;
@@ -156,6 +167,7 @@ local bert_vocab = global_root+"/bert_vocab";
         "semantic_red_map":semantic_red_map,
         "semantic_red_map_loss":semantic_red_map_loss,
         "semantic_red_map_key":semantic_red_map_key,
+        "pair_oracle":pair_oracle,
         "trainable":util.bert_trainable,
         "dropout":dropout,
         "graph_encoder":agg_func,
@@ -172,6 +184,7 @@ local bert_vocab = global_root+"/bert_vocab";
         "max_pred_word":max_pred_word,
          "min_pred_unit":min_pred_unit,       # 4 for cnn
         "max_pred_unit":max_pred_unit,        # 6 for cnn
+        "threshold_red_map":threshold_red_map
     },
      "iterator":base_iterator,
 //     {type: 'multiprocess',

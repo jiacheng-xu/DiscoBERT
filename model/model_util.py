@@ -70,7 +70,8 @@ def easy_post_processing(inp: List):
 
 def flatten_2d_matrix_to_1d(two_dim_matrix, word_num):
     batch_size, sent_num = two_dim_matrix.shape
-    bias = torch.arange(start=0, end=batch_size, dtype=torch.long, device=two_dim_matrix.device,
+    bias = torch.arange(start=0, end=batch_size,
+                        dtype=torch.long, device=two_dim_matrix.device,
                         requires_grad=False) * word_num
     bias = bias.view(-1, 1)
     bias = bias.repeat(1, sent_num).view(-1)
@@ -104,3 +105,23 @@ def efficient_head_selection(top_vec, clss):
     # print(selected_sent_rep.shape)
     # print(sent_mask.shape)
     return selected_sent_rep, sent_mask
+
+
+def efficient_oracle_selection(attn_feat,
+                               red_map_p_opt_idx):
+    batch_size = attn_feat.shape[0]
+    valid_len = attn_feat.shape[1]
+    flatten_attn = torch.flatten(attn_feat)
+
+    red_map_p_opt_idx_mask = red_map_p_opt_idx >= 0
+    red_map_p_opt_idx_non_neg = torch.nn.functional.relu(red_map_p_opt_idx).long()
+
+    flatten_red_map_p_opt_idx_non_neg = red_map_p_opt_idx_non_neg.view(batch_size * valid_len)
+    # row_index = [ valid_len * idx for idx in range(batch_size*valid_len)]
+    bias = torch.arange(start=0, end=batch_size * valid_len,
+                        dtype=torch.long, device=attn_feat.device,
+                        requires_grad=False) * valid_len
+    sel_msk = flatten_red_map_p_opt_idx_non_neg + bias
+    what_sel = torch.index_select(flatten_attn, 0, sel_msk)
+    rt_sel = what_sel.reshape(batch_size, valid_len)
+    return rt_sel, red_map_p_opt_idx_mask

@@ -25,6 +25,7 @@ TODO Set up key names
 """
 from model.decoding_util import flatten
 import numpy as np
+from model.decoding_util import fill_upper_right_matrix
 
 """
 Given a document, MapKiosk could provide all of the semantic maps you need.
@@ -42,6 +43,14 @@ class MapKiosk():
 
     def __init__(self, map_keys=None):
         self.keys = map_keys
+
+    def get_red_mag_supervision(self, red_map_p, label_sensitive=0.3):
+        np_red_map_p = fill_upper_right_matrix(red_map_p)  # fill the upper right
+        optimal_index, optimal_va = self.margin_label_translator(np_red_map_p)  # get the optimal label for each row
+        optimal_va = optimal_va.reshape([optimal_va.shape[0], 1])
+        broadcasted_optimal_va = np.tile(optimal_va, optimal_va.shape[0])
+        red_map_p_mask = ((broadcasted_optimal_va - np_red_map_p) > label_sensitive).astype(int)
+        return red_map_p_mask, optimal_index
 
     def single_entry_entrance(self, sentences: List[List[str]], abstract: List[List[str]]):
         abstract: List[str] = sum(abstract, [])
@@ -64,6 +73,9 @@ class MapKiosk():
         sal_map_f = [[0 for _ in range(len(sentences))] for _ in range(len(sentences))]
         sal_map_p = [[0 for _ in range(len(sentences))] for _ in range(len(sentences))]
 
+        # word overlapping heuristic
+        unigram_overlap = [[0.0 for _ in range(len(sentences))] for _ in range(len(sentences))]
+
         for row, sent in enumerate(sentences):
             eval_1grams_row = evaluated_1grams[row]
             eval_2grams_row = evaluated_2grams[row]
@@ -80,21 +92,47 @@ class MapKiosk():
                                           ref_len)
                 sal_map_f[row][col] = _1rouge['f'] + _2rouge['f']
                 sal_map_p[row][col] = _1rouge['p'] + _2rouge['p']
-                # sal_map[row][col] = (_1rouge, _2rouge)
-        # map redundancy
-        red_map_f = self.get_redundancy_map(sal_map_f)
-        red_map_p = self.get_redundancy_map(sal_map_p)
 
-        label_bin_red_map_f = self.binary_label_translator(red_map_f)
-        label_bin_red_map_p = self.binary_label_translator(red_map_p)
-        label_bin_sal_map_f = self.binary_label_translator(sal_map_f, True)
-        label_bin_sal_map_p = self.binary_label_translator(sal_map_p, True)
-        rt_dict = {'bin_red_map_f': label_bin_red_map_f,
-                   'bin_red_map_p': label_bin_red_map_p,
-                   'bin_sal_map_f': label_bin_sal_map_f,
-                   'bin_sal_map_p': label_bin_sal_map_p
-                   }
+                if len(comb_1gram) > 0:
+                    unigram_overlap[row][col] = len(eval_1grams_row.intersection(evaluated_1grams[col])) / len(
+                        comb_1gram)
+        # redundancy map. empty diag line
+        # red_map_f = self.get_redundancy_map(sal_map_f)
+
+        red_map_p = self.get_redundancy_map(sal_map_p)  # exclude diag  # get original redundancy map
+        red_map_p_mask, red_map_p_opt_idx = self.get_red_mag_supervision(red_map_p)
+        # only red_map_p_mask and optimal_index useful
+
+        # label_mag_sal_map_p = self.margin_label_translator(sal_map_p, check_diag=True)
+
+        # label_bin_red_map_f = self.binary_label_translator(red_map_f)
+        # label_bin_red_map_p = self.binary_label_translator(red_map_p)
+        # label_bin_sal_map_f = self.binary_label_translator(sal_map_f, True)
+        # label_bin_sal_map_p = self.binary_label_translator(sal_map_p, True)
+        rt_dict = {
+            'unigram_overlap': unigram_overlap,  # exclude diag
+            # mar maps
+            'red_map_p_mask': red_map_p_mask,
+            'red_map_p_opt_idx': red_map_p_opt_idx
+            # 'mag_red_map_p': label_mag_red_map_p,
+            # 'mag_sal_map_p': label_mag_sal_map_p
+            # 'bin_red_map_f': label_bin_red_map_f,
+            # 'bin_red_map_p': label_bin_red_map_p,
+            # 'bin_sal_map_f': label_bin_sal_map_f,
+            # 'bin_sal_map_p': label_bin_sal_map_p
+        }
         return rt_dict
+
+    @staticmethod
+    def margin_label_translator(input_map: np.ndarray, check_diag: bool = False):
+
+        valid_len = input_map.shape[0]
+        # np_input_map = np.asarray(input_map)
+        if not check_diag:
+            input_map[range(valid_len), range(valid_len)] = 0
+        agmax = np.argmax(input_map, axis=1)
+        max_values = input_map[range(valid_len), agmax]
+        return agmax, max_values
 
     @staticmethod
     def binary_label_translator(input_map: List, check_diag: bool = False, percentile_based: bool = True,
@@ -153,11 +191,9 @@ class MapKiosk():
         pass
 
     @staticmethod
-    def get_redundancy_map(sal_map: List[List[float]]):
+    def get_redundancy_map(sal_map: List[List[float]]) -> List[List[int]]:
         """
-
-        :return: arbitrary num of maps.
-                int type (either 1 (pos edge) or 0 (neg edge) or -1 (mask out))
+        Get the redundancy map. Criteria: ROUGE[A,B]/max(R[A], R[B])
         """
         l = len(sal_map)
         # _data_insight = []
