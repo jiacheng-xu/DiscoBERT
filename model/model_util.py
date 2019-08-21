@@ -124,4 +124,5 @@ def efficient_oracle_selection(attn_feat,
     sel_msk = flatten_red_map_p_opt_idx_non_neg + bias
     what_sel = torch.index_select(flatten_attn, 0, sel_msk)
     rt_sel = what_sel.reshape(batch_size, valid_len)
-    return rt_sel, red_map_p_opt_idx_mask
+    rt_sel = rt_sel.unsqueeze(2).expand_as(attn_feat)
+    return rt_sel

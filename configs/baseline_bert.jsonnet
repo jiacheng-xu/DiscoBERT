@@ -6,16 +6,25 @@ local debug=false;
 local max_bpe=768;
 //local max_bpe=512;
 
+local threshold_red_map = [0.0,0.025,0.05,0.075, 0.1,0.15 ,0.2];
+//local threshold_red_map = [0.0];
+
+local trigram_block=true;
+//local trigram_block=false;
+
+
 //local cuda_device = [0,1,2,3];
-local cuda_device = 0;
+//local cuda_device = 0;
 //local cuda_device = 1;
 //local cuda_device = 2;
-//local cuda_device = 3;
+local cuda_device = 3;
 
 local stop_by_word_count=false;
 
-local semantic_red_map=true;
-local semantic_red_map_loss='mag';
+//local semantic_red_map=true;
+local semantic_red_map=false;
+
+local semantic_red_map_loss='bin';
 local semantic_red_map_key = 'p';
 //local semantic_red_map_key = 'f';
 
@@ -28,7 +37,7 @@ local semantic_red_map_key = 'p';
 local semantic_feedforard={
                 'input_dim': 768,
                 'hidden_dims': 768,
-                'activations': 'sigmoid',
+                'activations': ['relu','linear'],
                 'dropout':0.2,
                 'num_layers': 2,
 };
@@ -51,29 +60,26 @@ local use_disco=false;
 local matrix_attn={
         type:"linear",
         combination:'x,y,x*y,x+y,x-y',
-        activation:"sigmoid",
+//        activation:"sigmoid",
         tensor_1_dim:768,
         tensor_2_dim:768,
 //        label_dim:1
         };
-local threshold_red_map = [0.05, 0.1, 0.15, 0.2];
-//local trigram_block=true;
-local trigram_block=false;
 
-local min_pred_unit=1;
-local max_pred_unit=4;
+local min_pred_unit=2;
+local max_pred_unit=5;
 
 local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 22 else  588;
+local num_of_batch_per_train_epo= if debug then 22 else  3088;
 
 
 //local global_root = '/scratch/cluster/jcxu/GETSum';
 //local root = '/scratch/cluster/jcxu/dailymail';
 
 local global_root = '/datadrive/GETSum';
-//local root = '/datadrive/data/cnndm';
+local root = '/datadrive/data/cnndm';
 
-local root = '/datadrive/data/cnn';
+//local root = '/datadrive/data/cnn';
 
 
 local min_pred_word=40;

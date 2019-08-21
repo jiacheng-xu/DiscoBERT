@@ -272,8 +272,10 @@ def universal_decoding_interface(scores,
                 current_indexes.append([sel_i])
                 continue
             sel_i = np.argmax(scores)  # this is the candidate
+
             if scores[sel_i] < 0.001:
                 break
+            scores[sel_i] -= 10
             if use_disco:
                 candidates = _decode_disco(sel_i, dependency_dict)
             else:
@@ -299,10 +301,9 @@ def universal_decoding_interface(scores,
                         current_indexes.append(newstuff)
                 else:
                     current_indexes.append(list(set(candidates).union(set(cur_index))))
+
             if len(current_indexes) > max_pred_unit + 1:
                 break
-
-
 
         except IndexError:
             print("Index Error")
@@ -328,8 +329,11 @@ def universal_decoding_interface(scores,
     return pred_word_lists
 
 
+import copy
+
+
 def search_sem_red(candidates, cur_index, sem_red_map, threshold):
-    tmp = cur_index
+    tmp = copy.deepcopy(cur_index)
     _len = len(tmp)
     sem_red_map[:, cur_index] = 10
     rows = sem_red_map[cur_index]
@@ -345,7 +349,7 @@ def search_sem_red(candidates, cur_index, sem_red_map, threshold):
 
 
 def search_trigram_blocking(candidates, cur_index, current_trigrams, source_txt):
-    tmp = cur_index
+    tmp = copy.deepcopy(cur_index)
     _len = len(tmp)
     for c in candidates:
         if c in cur_index:
@@ -527,7 +531,8 @@ def decode_entrance(prob, prob_mat, meta_data, use_disco, trigram_block: bool = 
         else:
 
             pred_word_strs = universal_decoding_interface(
-                prob, prob_mat, use_disco, src, dep_dic,
+                prob, prob_mat, use_disco,
+                src, dep_dic,
                 trigram_block,
                 max_pred_unit, disco_map_2_sent, threshold
 
@@ -542,5 +547,7 @@ def decode_entrance(prob, prob_mat, meta_data, use_disco, trigram_block: bool = 
         else:
             pred_word_strs = std_decode_unit(sel_indexes, use_disco, src, dep_dic,
                                              trigram_block,
-                                             max_pred_unit, disco_map_2_sent)
+                                             max_pred_unit,
+                                             disco_map_2_sent
+                                             )
     return pred_word_strs, tgt

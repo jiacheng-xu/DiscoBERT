@@ -87,7 +87,7 @@ local base_iterator_unlimit={
 local bert_model = "bert-base-uncased";
 local bert_vocab = global_root+"/bert_vocab";
 
-local model_archive = "/datadrive/GETSum/tmp_expsx0o2m4hl";
+local model_archive = "/datadrive/GETSum/cnndm_disco_rst_43789";
 //local model_archive = null;
 {
 //    "model-archive":model_archive,

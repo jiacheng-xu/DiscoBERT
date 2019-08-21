@@ -133,42 +133,11 @@ class TensorBertSum(Model):
 
             # second_half = torch.empty(first_half.size(), dtype=torch.float32,requires_grad=True)
             # torch.nn.init.normal_(second_half, mean=0.0, std=1.0)
-            # print('normal')
             out = torch.cat([first_half, second_half], dim=0)
-            # print('-- copy')
             self.embedder.bert_model.embeddings.position_embeddings.weight = torch.nn.Parameter(out)
             self.embedder.bert_model.embeddings.position_embeddings.num_embeddings = 512 * 2
             self.embedder.max_pieces = 512 * 2
 
-        """
-        if isinstance(bert_model, str):
-            self.bert_model = PretrainedBertModel.load(bert_model)
-        else:
-            self.bert_model = bert_model
-    
-        if bert_max_length > 512:
-            first_half = self.bert_model.embeddings.position_embeddings.weight
-            ts = torch.zeros_like(first_half, dtype=torch.float32)
-            second_half = ts.new_tensor(first_half, requires_grad=True)
-            # print(out.size())
-            # exit()
-            # out = torch.nn.functional.interpolate(torch.unsqueeze(out.permute((1, 0), 0), 0), size=bert_max_length,
-            #                                       mode='linear')
-            # out = out.squeeze(0)
-            # out = out.permute((1, 0))
-            out = torch.cat([first_half, second_half], dim=0)
-            self.bert_model.embeddings.position_embeddings.weight = torch.nn.Parameter(out)
-            self.bert_model.embeddings.position_embeddings.num_embeddings = 512*2
-
-        self.bert_model.config = BertConfig.from_json_file(bert_config_file)
-        
-        for param in self.bert_model.parameters():
-            param.requires_grad = trainable
-
-        in_features = self.bert_model.config.hidden_size
-        """
-
-        self._graph_encoder = graph_encoder
         in_features = 768
         self._index = index
         self._dropout = torch.nn.Dropout(p=dropout)
@@ -185,7 +154,8 @@ class TensorBertSum(Model):
             for i in range(self.slot_num):
                 setattr(self, "rouge_{}".format(i),
                         PyrougeEvaluation(name='rouge_{}'.format(i), cand_path=tmp_dir, ref_path=tmp_dir,
-                                          path_to_valid=tmp_dir))
+                                          path_to_valid=tmp_dir)
+                        )
         else:
             self._min_pred_unit = min_pred_unit
             self._max_pred_unit = max_pred_unit
@@ -201,8 +171,12 @@ class TensorBertSum(Model):
         self._use_disco = use_disco
 
         self._use_disco_graph = use_disco_graph
-        self._span_extractor = span_extractor
+        if use_disco_graph:
+            self.disco_graph_encoder = graph_encoder
         self._use_coref = use_coref
+        if use_coref:
+            self.coref_graph_encoder = graph_encoder
+        self._span_extractor = span_extractor
 
         self._trigram_block = trigram_block
         self._use_pivot_decode = use_pivot_decode
@@ -216,7 +190,7 @@ class TensorBertSum(Model):
 
         if self._semantic_red_map:
             self.red_matrix_attn = matrix_attn
-            # self._univec_feedforward = semantic_feedforard
+            self._semantic_feedforard = semantic_feedforard
         self._pair_oracle = pair_oracle
         if self._pair_oracle:
             self.pair_matrix_attn = matrix_attn
@@ -289,9 +263,10 @@ class TensorBertSum(Model):
                 meta_field,
                 disco_label,
                 disco_span,
-                unigram_overlap,
-                red_map_p_mask,
-                red_map_p_opt_idx
+                **kwargs
+                # unigram_overlap,
+                # red_map_p_mask,
+                # red_map_p_opt_idx
                 ):
         with autograd.detect_anomaly():
             input_ids = tokens[self._index]
@@ -318,22 +293,32 @@ class TensorBertSum(Model):
                 encoder_output, encoder_output_msk = sent_rep, sent_mask
                 label_to_use = labels
 
-            if self._use_disco_graph:
-                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output,
-                                                                                 encoder_output_msk,
-                                                                                 meta_field, 'disco_rst_graph')
-            elif self._use_coref:
-                encoder_output_af_graph = self._graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,
-                                                                                 meta_field,
-                                                                                 'disco_coref_graph')
+            if self._use_disco_graph and not self._use_coref:
+                encoder_output_af_graph = self.disco_graph_encoder.transform_sent_rep(encoder_output,
+                                                                                      encoder_output_msk,
+                                                                                      meta_field, 'disco_rst_graph')
+            elif self._use_coref and not self._use_disco_graph:
+                encoder_output_af_graph = self.coref_graph_encoder.transform_sent_rep(encoder_output,
+                                                                                      encoder_output_msk,
+                                                                                      meta_field,
+                                                                                      'disco_coref_graph')
+            elif self._use_coref and self._use_disco_graph:
+                encoder_output_disco = self.disco_graph_encoder.transform_sent_rep(encoder_output,
+                                                                                   encoder_output_msk,
+                                                                                   meta_field, 'disco_rst_graph')
+                encoder_output_coref = self.coref_graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,
+                                                                                   meta_field,
+                                                                                   'disco_coref_graph')
+
             else:
                 encoder_output_af_graph = encoder_output
 
             if self._pair_oracle:
                 # TODO
-                raise NotImplementedError
+
                 self.compute_pair_loss(encoder_output_af_graph,
                                        encoder_output_msk)
+                raise NotImplementedError
             else:
                 output_dict = self.compute_standard_loss(encoder_output_af_graph,
                                                          encoder_output_msk,
@@ -342,30 +327,58 @@ class TensorBertSum(Model):
 
             # Do we need to train an explict redundancy model?
             if self._semantic_red_map:
+                encoder_output_af_graph = self._layer_norm.forward(encoder_output_af_graph, encoder_output_msk)
+                encoder_output_af_graph = self._semantic_feedforard.forward(encoder_output_af_graph)
+                encoder_output_af_graph = self._layer_norm.forward(encoder_output_af_graph, encoder_output_msk)
                 attn_feat = self.red_matrix_attn.forward(encoder_output_af_graph, encoder_output_af_graph)
+
+                attn_feat = torch.nn.functional.sigmoid(attn_feat)
                 batch_size = attn_feat.shape[0]
                 valid_len = attn_feat.shape[1]
                 # red_map_p_mask: batch, len, len
                 # red_map_p_opt_idx: batch, len
-                red_map_p_mask = red_map_p_mask.float()
-                rt_sel, red_map_p_opt_idx_mask = efficient_oracle_selection(attn_feat,
-                                                                            red_map_p_opt_idx
-                                                                            )
-                red_map_p_opt_idx_mask = red_map_p_opt_idx_mask.unsqueeze(2).expand_as(red_map_p_mask).float()
-                rt_sel = rt_sel.unsqueeze(2).expand_as(red_map_p_mask)
-                # two masks to use
-                objective = (1 - rt_sel + attn_feat) * red_map_p_opt_idx_mask * red_map_p_mask
-                margin_loss = torch.nn.functional.relu(objective)
+                red_p_pos = kwargs['red_{}_pos'.format(self._semantic_red_map_key)]
+                red_p_neg = kwargs['red_{}_neg'.format(self._semantic_red_map_key)]
+
+                if self._semantic_red_map_loss == 'bin':
+                    training_mask = red_p_pos + red_p_neg  # these are the mask for trainign bit
+                    training_mask = torch.nn.functional.relu(training_mask)
+                    red_p_pos = torch.nn.functional.relu(red_p_pos)
+                    # red_p_neg = torch.nn.functional.relu(red_p_neg).byte()
+
+                    # pos_feat = torch.masked_select(attn_feat, mask=red_p_pos)
+                    # neg_feat = torch.masked_select(attn_feat, mask=red_p_neg)
+                    red_loss = self._loss(attn_feat, red_p_pos)
+                    # red_loss = torch.sum(neg_feat) - torch.sum(pos_feat)
+                    red_loss = red_loss * training_mask
+                    red_loss = torch.sum(red_loss) / 50
+                    if random.random() < 0.02:
+                        print("margin loss: {}".format(red_loss))
+                    output_dict["loss"] += red_loss
+                elif self._semantic_red_map_loss == 'mag':
+                    red_map_p_mask = kwargs['red_map_p_supervision_mask']
+                    red_map_p_opt_idx = kwargs['red_map_p_opt_idx']
+                    unigram_overlap = kwargs['unigram_overlap']
+                    red_map_p_mask = red_map_p_mask.float()
+                    rt_sel = efficient_oracle_selection(attn_feat,
+                                                        red_map_p_opt_idx
+                                                        )
+                    # red_map_p_opt_idx_mask = red_map_p_opt_idx_mask.unsqueeze(2).expand_as(red_map_p_mask).float()
+                    # two masks to use
+                    objective = ((
+                                         0.5 - unigram_overlap) - rt_sel + attn_feat) * red_map_p_mask  # * red_map_p_opt_idx_mask
+                    margin_loss = torch.nn.functional.relu(objective)
+
+
+                else:
+                    pass
 
                 output_dict['scores_matrix_red'] = attn_feat
 
-                if random.random() < 0.05:
+                if random.random() < 0.008:
                     # print(margin_loss.data[0])
-                    print(attn_feat.data[0][-1])
-                margin_loss = torch.sum(margin_loss) * 0.01
-                if random.random() < 0.01:
-                    print("margin loss: {}".format(margin_loss))
-                output_dict["loss"] += margin_loss
+                    print(attn_feat.data.cpu()[0][0])
+                    # print(attn_feat.data.cpu()[0][-1])
 
                 # scores = self._sigmoid(self._classification_layer(self._dropout(
                 #     self._univec_feedforward.forward(encoder_output_af_graph))))  # batch, sent_num, 1
@@ -384,20 +397,6 @@ class TensorBertSum(Model):
                 # label_map_mask = label_map >= 0
                 # label_map = torch.nn.functional.relu(label_map)
 
-                # if self._semantic_red_map_loss == 'bin':
-                #     raw_loss = self._loss(scores_matrix, label_map.float())
-                #     loss = raw_loss * label_map_mask.float()
-                #
-                #     if random.random() < 0.0001:
-                #         print(loss.data[0])
-                #     loss = torch.sum(loss)
-                #     output_dict["loss"] = loss
-                #
-                # elif self._semantic_red_map_loss == 'mag':
-                #     pass
-                # else:
-                #     raise NotImplementedError
-
             type = meta_field[0]['type']
             # print(len(self.rouge_0.pred_str_bag))
             if (type == 'valid' or type == 'test') or (self.debug):
@@ -406,7 +405,8 @@ class TensorBertSum(Model):
                                               trigram_block=self._trigram_block,
                                               sem_red_matrix=self._semantic_red_map,
                                               pair_oracle=self._pair_oracle,
-                                              stop_by_word_cnt=self._stop_by_word_count, threshold_for_red_map=ths)
+                                              stop_by_word_cnt=self._stop_by_word_count,
+                                              threshold_for_red_map=ths)
             return output_dict
 
     @overrides
@@ -422,6 +422,7 @@ class TensorBertSum(Model):
 
         masks = output_dict['mask']
         meta = output_dict['meta']
+        batch_size = len(meta)
         # expanded_msk = masks.unsqueeze(2).expand_as(probs)
         # expanded_msk = masks.unsqueeze(2)
 
@@ -440,7 +441,7 @@ class TensorBertSum(Model):
             tuned_scores_matrix = scores_matrix + (_mask_matrix.float() - 1) * 10
             tuned_mat_probs = tuned_scores_matrix.cpu().data.numpy()
         else:
-            tuned_mat_probs = None
+            tuned_mat_probs = [None for _ in range(batch_size)]
 
         batch_size, sent_num = masks.shape
         for b in range(batch_size):
@@ -470,6 +471,33 @@ class TensorBertSum(Model):
                         pred="<q>".join(pred_word_list_strs[l]),
                         ref=tgt_str)
         return output_dict
+
+    def ultra_fine_metrics(self, dict_of_rouge):
+        best_key, best_val = "", -1
+        # for ths in self._threshold_red_map:
+        #     for l in  range(self._min_pred_unit, self._max_pred_unit):
+        # threshold_slots = {}
+        # pred_len_slots = {}
+        # best_of_best = None
+        # among all pred_unit, whose the best
+        # among all threshold, whose the best
+        # for key, val in dict_of_rouge.items():
+        #     if not key.endswith("_1"):
+        #         continue
+        #     segs = key.split("_")
+        #     pred_l = segs[1]
+        #     thres = segs[2]
+        #     if thres in threshold_slots:
+        #         thre
+        for key, val in dict_of_rouge.items():
+            if key.endswith("_1"):
+                if val > best_val:
+                    best_val = val
+                    best_key = key
+        best_name = best_key.split("_")
+        pred_len = int(best_name[1])
+        thres = float(best_name[2])
+        return "_".join(best_name[:3]), pred_len, thres
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
         # dict_of_rouge = self._rouge.get_metric(reset)
@@ -506,16 +534,7 @@ class TensorBertSum(Model):
                     for ths in self._threshold_red_map:
                         _d = getattr(self, 'rouge_{}_{}'.format(l, ths)).get_metric(reset)
                         dict_of_rouge = {**dict_of_rouge, **_d}
-
-        # find best f1
-        best_key, best_val = "", -1
-        # print(dict_of_rouge)
-        for key, val in dict_of_rouge.items():
-            if key.endswith("_1"):
-                if val > best_val:
-                    best_val = val
-                    best_key = key
-        best_name = best_key[:-2]
+        best_name, pred_len, thres = self.ultra_fine_metrics(dict_of_rouge)
 
         if reset:
             print("--> Best_key: {}".format(best_name))
@@ -524,6 +543,8 @@ class TensorBertSum(Model):
             'R_1': dict_of_rouge['{}_1'.format(best_name)],
             'R_2': dict_of_rouge['{}_2'.format(best_name)],
             'R_L': dict_of_rouge['{}_L'.format(best_name)],
+            'L': pred_len,
+            'T': thres
         }
         return metrics
 

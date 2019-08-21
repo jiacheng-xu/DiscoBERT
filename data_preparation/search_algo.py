@@ -68,7 +68,7 @@ def appx_simple_rouge_estimator(sent: List[str], abs: List[List[str]]):
     ref_len = len(abstract)
     evaluated_1grams = _get_word_ngrams(1, [sent])
     reference_1grams = _get_word_ngrams(1, [abstract])
-    from data_preparation.nlpyang_data_builder import cal_rouge
+    # from data_preparation.nlpyang_data_builder import cal_rouge
     evaluated_2grams = _get_word_ngrams(2, [sent])
     reference_2grams = _get_word_ngrams(2, [abstract])
     # rouge_1 = cal_rouge(evaluated_1grams, reference_1grams)['f']
@@ -81,8 +81,8 @@ def appx_simple_rouge_estimator(sent: List[str], abs: List[List[str]]):
     rouge_2_r = rouge_2['r']
     rouge_2_p = rouge_2['p']
     # rouge_2 = cal_rouge(evaluated_2grams, reference_2grams)['f']
-    return rouge_1_f, rouge_1_r, rouge_1_p, rouge_2_f, rouge_2_r, rouge_2_p
-
+    # return rouge_1_f, rouge_1_r, rouge_1_p, rouge_2_f, rouge_2_r, rouge_2_p
+    return rouge_1_p+ rouge_2_p
 
 def original_greedy_selection(doc_sent_list: List[List[str]], abstract_sent_list: List[List[str]], summary_size):
     def _rouge_clean(s):

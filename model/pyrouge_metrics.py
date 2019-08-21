@@ -98,7 +98,9 @@ class PyrougeEvaluation(Metric):
 
         rouge_str = rouge_results_to_str(rouges)
         logger.info(rouge_str)
-        print(rouge_str)
+        print("{}: {}".format(self.name, rouge_str))
+        # print(self.name)
+        # print(rouge_str)
         logger.info("Name: {}\tLen: {}\tScore: {}".format(self.name, len(self.pred_str_bag), rouge_str))
         all_metrics = {}
         all_metrics[self.name + '_1'] = rouges['rouge_1_f_score']

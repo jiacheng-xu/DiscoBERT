@@ -220,8 +220,8 @@ class CNNDMDatasetReader(DatasetReader):
                                                 d['doc_id'],
                                                 identify_partition_name(f)
                                                 )
-
-    def create_disco_coref(self, disco_coref, num_of_disco):
+    @staticmethod
+    def create_disco_coref( disco_coref, num_of_disco):
         disco_coref = [x for x in disco_coref if x[0] != x[1]]
         coref_graph_as_list_of_tuple = [(x, x) for x in range(num_of_disco)]
 
@@ -253,8 +253,8 @@ class CNNDMDatasetReader(DatasetReader):
         #########
 
         return coref_graph_as_list_of_tuple
-
-    def create_disco_graph(self, disco_graph, num_of_disco: int) -> List[tuple]:
+    @staticmethod
+    def create_disco_graph(disco_graph, num_of_disco: int) -> List[tuple]:
 
         ########
         # disco graph
@@ -269,7 +269,8 @@ class CNNDMDatasetReader(DatasetReader):
 
         return dis_graph_as_list_of_tuple
 
-    def map_disco_to_sent(self, disco_span: List[tuple]):
+    @staticmethod
+    def map_disco_to_sent(disco_span: List[tuple]):
         map_to_sent = [0 for _ in range(len(disco_span))]
         curret_sent = 0
         current_idx = 1
@@ -327,7 +328,7 @@ class CNNDMDatasetReader(DatasetReader):
         if self.semantic_red_map:
             maps = self.map_kiosk.single_entry_entrance(sent_txt[:actual_sent_len], tgt_tok_list_list_str)
             for k, v in maps.items():
-                _v = ArrayField(np.asarray(v), padding_value=-1, dtype=np.int)
+                _v = ArrayField(np.asarray(v), padding_value=-1, dtype=np.float32)
                 maps[k] = _v
         else:
             maps = {}
@@ -356,9 +357,14 @@ class CNNDMDatasetReader(DatasetReader):
         coref_graph = self.create_disco_coref(
             disco_coref, num_of_disco
         )
+        # print(coref_graph)
+
+
         dis_graph = self.create_disco_graph(
             disco_graph, num_of_disco
         )
+        # print(dis_graph)
+        # exit()
         meta_field = MetadataField({
             "source": 'cnndm',
             "type": spilit_type,

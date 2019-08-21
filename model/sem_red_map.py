@@ -44,16 +44,42 @@ class MapKiosk():
     def __init__(self, map_keys=None):
         self.keys = map_keys
 
-    def get_red_mag_supervision(self, red_map_p, label_sensitive=0.3):
-        np_red_map_p = fill_upper_right_matrix(red_map_p)  # fill the upper right
-        optimal_index, optimal_va = self.margin_label_translator(np_red_map_p)  # get the optimal label for each row
-        optimal_va = optimal_va.reshape([optimal_va.shape[0], 1])
-        broadcasted_optimal_va = np.tile(optimal_va, optimal_va.shape[0])
-        red_map_p_mask = ((broadcasted_optimal_va - np_red_map_p) > label_sensitive).astype(int)
-        return red_map_p_mask, optimal_index
+    def get_red_mag_supervision(self, original_red_map, label_sensitive=0.5):
+
+        optimal_indexes, optimal_values = self.margin_label_translator(
+            original_red_map)  # get the optimal label for each row
+        l = optimal_values.shape[0]
+
+        row_optimal_va = optimal_values.reshape([l, 1])
+        row_broadcasted_optimal_va = np.tile(row_optimal_va, l)
+        row_red_map_supervision_label_mask = ((row_broadcasted_optimal_va - original_red_map) > label_sensitive)
+
+        col_optimal_va = optimal_values.reshape([1, l])
+        col_broadcasted_optimal_va = np.tile(col_optimal_va, [l, 1])
+        col_red_map_supervision_label_mask = ((col_broadcasted_optimal_va - original_red_map) > label_sensitive)
+        red_map_supervision_label_mask = np.logical_or(row_red_map_supervision_label_mask,
+                                                       col_red_map_supervision_label_mask)
+        # red_map_supervision_label_mask = ((broadcasted_optimal_va - original_red_map) > label_sensitive).astype(int)
+
+        original_red_map_mask = (original_red_map > 0)
+        final_mask = np.logical_and(red_map_supervision_label_mask, original_red_map_mask).astype(int)
+        return final_mask, optimal_indexes
+
+    @staticmethod
+    def pick_label(redundancy_map, percentile=10):
+        mask = redundancy_map > 0
+        flatten_redundancy_map = redundancy_map.flatten()
+        flatten_redundancy_map = flatten_redundancy_map[flatten_redundancy_map > 0]
+        lower = np.percentile(flatten_redundancy_map, percentile)
+        upper = np.percentile(flatten_redundancy_map, 100 - percentile)
+
+        pos_map = np.logical_and(mask, redundancy_map > upper)
+        neg_map = np.logical_and(mask, redundancy_map < lower)
+        return pos_map, neg_map
 
     def single_entry_entrance(self, sentences: List[List[str]], abstract: List[List[str]]):
-        abstract: List[str] = sum(abstract, [])
+        abstract: List[str] = sum(abstract + sentences[:3], [])
+        # abstract: List[str] = sum(abstract , [])
         # cache ngrams for efficient reuse
         evaluated_1grams = [_get_word_ngrams(1, [s]) for s in sentences]
         evaluated_2grams = [_get_word_ngrams(2, [s]) for s in sentences]
@@ -94,28 +120,36 @@ class MapKiosk():
                 sal_map_p[row][col] = _1rouge['p'] + _2rouge['p']
 
                 if len(comb_1gram) > 0:
-                    unigram_overlap[row][col] = len(eval_1grams_row.intersection(evaluated_1grams[col])) / len(
+                    _over = len(eval_1grams_row.intersection(evaluated_1grams[col])) / len(
                         comb_1gram)
+                    unigram_overlap[row][col] = _over
+                    unigram_overlap[col][row] = _over
         # redundancy map. empty diag line
-        # red_map_f = self.get_redundancy_map(sal_map_f)
-
+        red_map_f = self.get_redundancy_map(sal_map_f)
         red_map_p = self.get_redundancy_map(sal_map_p)  # exclude diag  # get original redundancy map
-        red_map_p_mask, red_map_p_opt_idx = self.get_red_mag_supervision(red_map_p)
-        # only red_map_p_mask and optimal_index useful
+        # diag == -1. invalid pos == -1
 
-        # label_mag_sal_map_p = self.margin_label_translator(sal_map_p, check_diag=True)
+        red_p_pos, red_p_neg = self.pick_label(red_map_p)
+        red_f_pos, red_f_neg = self.pick_label(red_map_f)
+        # red_p_supervision_mask, red_map_p_optimal_index = self.get_red_mag_supervision(red_map_p)
+        # label_bin_red_map_p = self.binary_label_translator(red_map_f)
 
-        # label_bin_red_map_f = self.binary_label_translator(red_map_f)
+        unigram_overlap = np.asarray(unigram_overlap, dtype=np.float32)
+
         # label_bin_red_map_p = self.binary_label_translator(red_map_p)
         # label_bin_sal_map_f = self.binary_label_translator(sal_map_f, True)
         # label_bin_sal_map_p = self.binary_label_translator(sal_map_p, True)
         rt_dict = {
             'unigram_overlap': unigram_overlap,  # exclude diag
             # mar maps
-            'red_map_p_mask': red_map_p_mask,
-            'red_map_p_opt_idx': red_map_p_opt_idx
-            # 'mag_red_map_p': label_mag_red_map_p,
-            # 'mag_sal_map_p': label_mag_sal_map_p
+            # 'red_map_p_supervision_mask': red_map_p_supervision_mask,  # where
+            # 'red_map_p_opt_idx': red_map_p_optimal_index,
+            'red_p_pos': red_p_pos,
+            'red_p_neg': red_p_neg,
+            'red_f_pos': red_f_pos,
+            'red_f_neg': red_f_neg,
+            # 'red_map_p': red_map_p,
+            # 'red_map_f': red_map_f,
             # 'bin_red_map_f': label_bin_red_map_f,
             # 'bin_red_map_p': label_bin_red_map_p,
             # 'bin_sal_map_f': label_bin_sal_map_f,
@@ -129,15 +163,18 @@ class MapKiosk():
         valid_len = input_map.shape[0]
         # np_input_map = np.asarray(input_map)
         if not check_diag:
-            input_map[range(valid_len), range(valid_len)] = 0
+            input_map[range(valid_len), range(valid_len)] = -1
         agmax = np.argmax(input_map, axis=1)
         max_values = input_map[range(valid_len), agmax]
         return agmax, max_values
 
     @staticmethod
-    def binary_label_translator(input_map: List, check_diag: bool = False, percentile_based: bool = True,
-                                percent: int = 30,
-                                threshold_based: bool = False, pos_thres: float = 1.0,
+    def binary_label_translator(input_map: np.ndarray,
+                                check_diag: bool = False,
+                                percentile_based: bool = True,
+                                percent: int = 15,
+                                threshold_based: bool = False,
+                                pos_thres: float = 1.0,
                                 neg_thres=0.7):
         l = len(input_map)
         label_map = [[-1 for _ in range(l)] for _ in range(l)]
@@ -157,6 +194,10 @@ class MapKiosk():
                     elif input_map[row][col] <= up_p:
                         label_map[row][col] = 0
             return label_map
+        elif not percentile_based and threshold_based:
+            pass
+        else:
+            raise NotImplementedError
 
     @staticmethod
     def dedup_cal_rouge(evaluated_ngrams: set, reference_ngrams: set, evaluated_len: int, reference_len: int):
@@ -191,7 +232,7 @@ class MapKiosk():
         pass
 
     @staticmethod
-    def get_redundancy_map(sal_map: List[List[float]]) -> List[List[int]]:
+    def get_redundancy_map(sal_map: List[List[float]]) -> np.ndarray:
         """
         Get the redundancy map. Criteria: ROUGE[A,B]/max(R[A], R[B])
         """
@@ -204,13 +245,21 @@ class MapKiosk():
                     redundancy_map[i][j] = -1
                     continue
                 max_of_individual = max(sal_map[i][i], sal_map[j][j])
-                if max_of_individual > 0:
-                    redundancy_map[i][j] = sal_map[i][j] / max_of_individual
-                    # _data_insight.append(sal_map[i][j] / max_of_individual)
+                # min_of_individual = min(sal_map[i][i], sal_map[j][j])
+                if max_of_individual > 0:  # and min_of_individual>0.1:
+                    rr = sal_map[i][j] / max_of_individual
+                    redundancy_map[i][j] = rr
+                    redundancy_map[j][i] = rr
+                # else:
+                #     redundancy_map[i][j] = -1
+                #     redundancy_map[i][j] = -1
+                # _data_insight.append(sal_map[i][j] / max_of_individual)
 
         # print(statistics.mean(_data_insight))
         # print(statistics.stdev(_data_insight))
         # print(statistics.median(_data_insight))
+        # redundancy_map = fill_upper_right_matrix(redundancy_map)
+        redundancy_map = np.asarray(redundancy_map, dtype=np.float32)
         return redundancy_map
 
     def get_ngram_map(self):
