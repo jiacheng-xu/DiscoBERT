@@ -57,9 +57,8 @@ flatten = lambda l: [item for sublist in l for item in sublist]
 # from model.tensor_bert import flatten, extract_n_grams, easy_post_processing
 from model.model_util import extract_n_grams, easy_post_processing, split_sentence_according_to_id
 
-
 def std_decode_unit(sel_indexes, use_disco, source_txt, dependency_dict,
-                    trigram_block, max_pred_unit, disco_map_2_sent):
+                    trigram_block, max_pred_unit, disco_map_2_sent, src_full_sent):
     # pred_word_lists = [[] for i in range(int((max_pred_word - min_pred_word) / step))]
     # pred_indexes_lists = [[] for i in range(int((max_pred_word - min_pred_word) / step))]
     pred_word_lists = []
@@ -156,6 +155,7 @@ def std_decode_unit(sel_indexes, use_disco, source_txt, dependency_dict,
     #     pred_word_strs.append(
     #         " ".join(easy_post_processing(pred_word))
     #     )
+
     return pred_word_lists
 
 
@@ -515,7 +515,7 @@ def decode_entrance(prob, prob_mat, meta_data, use_disco, trigram_block: bool = 
                     threshold=0.05
                     ):
     tgt = meta_data['tgt_txt']
-
+    src_full_sent = meta_data['sent_txt']
     disco_map_2_sent = meta_data['disco_map_to_sent']
     if use_disco:
         src = meta_data['disco_txt']
@@ -548,6 +548,6 @@ def decode_entrance(prob, prob_mat, meta_data, use_disco, trigram_block: bool = 
             pred_word_strs = std_decode_unit(sel_indexes, use_disco, src, dep_dic,
                                              trigram_block,
                                              max_pred_unit,
-                                             disco_map_2_sent
+                                             disco_map_2_sent,src_full_sent
                                              )
     return pred_word_strs, tgt

@@ -44,7 +44,7 @@ class PyrougeEvaluation(Metric):
                  ) -> None:
         self.pred_str_bag = []
         self.ref_str_bag = []
-
+        self.raw_str_bag = []
         self.name = name
         # self.writting_address = writting_address
         # self.path = path_to_valid
@@ -86,10 +86,12 @@ class PyrougeEvaluation(Metric):
 
         print("{} samples in bag".format(len(self.pred_str_bag)))
 
-        with open(os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp)), 'w') as wfd:
+        candidate_file_path = os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp))
+        ref_file_path = os.path.join(self.ref_path, 'ref_{}.txt'.format(stamp))
+        with open(candidate_file_path, 'w') as wfd:
             wfd.write("\n".join(self.pred_str_bag))
 
-        with open(os.path.join(self.ref_path, 'ref_{}.txt'.format(stamp)), 'w') as rfd:
+        with open(ref_file_path, 'w') as rfd:
             rfd.write("\n".join(self.ref_str_bag))
 
         rouges = test_rouge(self.temp_dir,
@@ -106,6 +108,20 @@ class PyrougeEvaluation(Metric):
         all_metrics[self.name + '_1'] = rouges['rouge_1_f_score']
         all_metrics[self.name + '_2'] = rouges['rouge_2_f_score']
         all_metrics[self.name + '_L'] = rouges['rouge_l_f_score']
+
+        os.rename(candidate_file_path,
+                  os.path.join(self.cand_path, '{}_{}_{}_cand_{}.txt'.format(rouges['rouge_1_f_score'],
+                                                                             rouges['rouge_2_f_score'],
+                                                                             rouges[
+                                                                                 'rouge_l_f_score'],
+                                                                             stamp)))
+
+        os.rename(ref_file_path,
+                  os.path.join(self.ref_path, '{}_{}_{}_ref_{}.txt'.format(rouges['rouge_1_f_score'],
+                                                                           rouges['rouge_2_f_score'],
+                                                                           rouges[
+                                                                               'rouge_l_f_score'],
+                                                                           stamp)))
         # all_metrics[self.name + '_A'] = (score['ROUGE-1-F'] + score['ROUGE-2-F'] + score['ROUGE-L-F']) / 3.
         # _ser_name = "{0:.3f},{1:.3f},{2:.3f}-{3}-{4}-{5}".format(score['ROUGE-1-F'], score['ROUGE-2-F'],
         #                                                          score['ROUGE-L-F'],
@@ -794,9 +810,10 @@ class Rouge155(object):
             os.makedirs(config_dir)
         return os.path.join(config_dir, 'settings.ini')
 
+
 #
 if __name__ == "__main__":
-    p =tempfile.mkdtemp(prefix='/datadrive/tmp/')
-    x = test_rouge(p,'/datadrive/tmp/cand.txt',
-               '/datadrive/tmp/ref.txt')
+    p = tempfile.mkdtemp(prefix='/datadrive/tmp/')
+    x = test_rouge(p, '/datadrive/tmp/cand.txt',
+                   '/datadrive/tmp/ref.txt')
     print(x)

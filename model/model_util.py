@@ -58,12 +58,14 @@ from typing import List
 
 
 def easy_post_processing(inp: List):
-    if len(inp) < 2:
-        return inp
+    if len(inp) < 4:
+        return []
 
     if inp[-1] in ',;-=':
         inp.pop(-1)
     if inp[0] in ',;-=.!':
+        inp.pop(0)
+    if inp[0] in ['and', 'or', 'but']:
         inp.pop(0)
     return inp
 

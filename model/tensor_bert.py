@@ -13,7 +13,7 @@ from allennlp.nn import RegularizerApplicator
 from allennlp.nn.initializers import InitializerApplicator
 from overrides import overrides
 from pytorch_pretrained_bert.modeling import BertModel
-
+from collections import OrderedDict
 from model.archival_gnns import GraphEncoder
 from model.decoding_util import decode_entrance
 from model.sem_red_map import MapKiosk
@@ -88,6 +88,7 @@ class TensorBertSum(Model):
                  # bert_model: Union[str, BertModel],
                  # bert_config_file: str,
                  debug: bool,
+                 bert_pretrain_model: str,
                  bert_max_length: int,
                  multi_orac: bool,
 
@@ -96,7 +97,7 @@ class TensorBertSum(Model):
                  semantic_red_map_loss: str,  # bin or mag
 
                  pair_oracle: bool,  # use pairwise estimation as salience estimation
-
+                 fusion_feedforward: FeedForward,
                  semantic_feedforard: FeedForward,
                  graph_encoder: GraphEncoder,
                  span_extractor: SpanExtractor,
@@ -124,6 +125,8 @@ class TensorBertSum(Model):
         self.debug = debug
         self.embedder = PretrainedBertEmbedder('bert-base-uncased', requires_grad=True, top_layer_only=True)
 
+        self.bert_pretrain_model = bert_pretrain_model
+
         if bert_max_length > 512:
             first_half = self.embedder.bert_model.embeddings.position_embeddings.weight
             # ts = torch.zeros_like(first_half, dtype=torch.float32)
@@ -137,6 +140,14 @@ class TensorBertSum(Model):
             self.embedder.bert_model.embeddings.position_embeddings.weight = torch.nn.Parameter(out)
             self.embedder.bert_model.embeddings.position_embeddings.num_embeddings = 512 * 2
             self.embedder.max_pieces = 512 * 2
+        if bert_pretrain_model is not None:
+            model_dump: OrderedDict = torch.load(os.path.join(bert_pretrain_model, 'best.th'))
+            trimmed_dump_embedder = OrderedDict()
+            for k, v in model_dump.items():
+                if k.startswith("embedder"):
+                    trimmed_dump_embedder[k] = v
+            self.load_state_dict(trimmed_dump_embedder)
+            print('finish loading pretrained bert')
 
         in_features = 768
         self._index = index
@@ -176,6 +187,8 @@ class TensorBertSum(Model):
         self._use_coref = use_coref
         if use_coref:
             self.coref_graph_encoder = graph_encoder
+        if self._use_coref and self._use_disco_graph:
+            self._fusion_feedforward = fusion_feedforward
         self._span_extractor = span_extractor
 
         self._trigram_block = trigram_block
@@ -194,7 +207,6 @@ class TensorBertSum(Model):
         self._pair_oracle = pair_oracle
         if self._pair_oracle:
             self.pair_matrix_attn = matrix_attn
-            # TODO
 
     def transform_sent_rep(self, sent_rep, sent_mask):
         init_graphs = self._graph_encoder.convert_sent_tensors_to_graphs(sent_rep, sent_mask)
@@ -223,7 +235,8 @@ class TensorBertSum(Model):
                        "mask": encoder_output_msk,
                        # 'mask': sent_mask,
                        # 'disco_mask': disco_mask,
-                       "meta": meta_field}
+                       "meta": meta_field
+                       }
 
         if label_to_use is not None:
             # logits: batch size, sent num
@@ -309,7 +322,8 @@ class TensorBertSum(Model):
                 encoder_output_coref = self.coref_graph_encoder.transform_sent_rep(encoder_output, encoder_output_msk,
                                                                                    meta_field,
                                                                                    'disco_coref_graph')
-
+                encoder_output_combine = torch.cat([encoder_output_coref, encoder_output_disco], dim=2)
+                encoder_output_af_graph = self._fusion_feedforward.forward(encoder_output_combine)
             else:
                 encoder_output_af_graph = encoder_output
 
@@ -398,24 +412,32 @@ class TensorBertSum(Model):
                 # label_map = torch.nn.functional.relu(label_map)
 
             type = meta_field[0]['type']
+            source_name = meta_field[0]['source']
             # print(len(self.rouge_0.pred_str_bag))
             if (type == 'valid' or type == 'test') or (self.debug):
-                for ths in self._threshold_red_map:
-                    output_dict = self.decode(output_dict,
-                                              trigram_block=self._trigram_block,
-                                              sem_red_matrix=self._semantic_red_map,
-                                              pair_oracle=self._pair_oracle,
-                                              stop_by_word_cnt=self._stop_by_word_count,
-                                              threshold_for_red_map=ths)
+                # for ths in self._threshold_red_map:
+                output_dict = self.decode(output_dict,
+                                          trigram_block=self._trigram_block,
+                                          min_pred_unit=self._min_pred_unit,
+                                          max_pred_unit=self._max_pred_unit,
+                                          sem_red_matrix=self._semantic_red_map,
+                                          pair_oracle=self._pair_oracle,
+                                          stop_by_word_cnt=self._stop_by_word_count,
+                                          threshold_for_red_map=0,
+                                          source_name=source_name
+                                          )
             return output_dict
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor],
                trigram_block: bool = True,
+               min_pred_unit: int = 4,
+               max_pred_unit: int = 7,
                sem_red_matrix: bool = False,
                pair_oracle: bool = False,
                stop_by_word_cnt: bool = False,
-               threshold_for_red_map: float = 0.05
+               threshold_for_red_map: float = 0.05,
+               source_name: str = 'dailymail'
                ):
         # probs: batch size, sent num, 2
         # masks: batch size, sent num [binary]
@@ -445,7 +467,6 @@ class TensorBertSum(Model):
 
         batch_size, sent_num = masks.shape
         for b in range(batch_size):
-
             pred_word_list_strs, tgt_str = decode_entrance(tuned_probs[b],
                                                            tuned_mat_probs[b],
                                                            meta[b],
@@ -454,19 +475,24 @@ class TensorBertSum(Model):
                                                            sem_red_matrix,
                                                            pair_oracle,
                                                            stop_by_word_cnt,
-                                                           self._min_pred_word,
-                                                           self._max_pred_word,
+                                                           min_pred_unit,
+                                                           max_pred_unit,
                                                            self._step,
                                                            self._min_pred_unit,
                                                            self._max_pred_unit,
                                                            threshold_for_red_map
                                                            )
+
             if self._stop_by_word_count:
                 for l in range(self.slot_num):
                     getattr(self, 'rouge_{}'.format(l))(pred="<q>".join(pred_word_list_strs[l]),
                                                         ref=tgt_str)
             else:
-                for l in range(self._min_pred_unit, self._max_pred_unit):
+                if source_name == 'cnn':
+                    pred_word_list_strs.append(pred_word_list_strs[-1])
+                    pred_word_list_strs.pop(0)
+                for l in range(min_pred_unit, max_pred_unit):
+                    pred_word_list_strs[l] = [x for x in pred_word_list_strs[l] if len(x) > 1]
                     getattr(self, 'rouge_{}_{}'.format(l, threshold_for_red_map))(
                         pred="<q>".join(pred_word_list_strs[l]),
                         ref=tgt_str)
@@ -581,7 +607,7 @@ if __name__ == '__main__':
 
     serialization_dir = tempfile.mkdtemp(prefix=os.path.join(root, 'tmp_exps'))
     if finetune:
-        model_arch = '/datadrive/GETSum/tmp_expsrt50l9f9'
+        model_arch = '/datadrive/GETSum/cnndm_fusion_continue'
         fine_tune_model_from_file_paths(model_arch,
                                         os.path.join(root, 'configs/baseline_bert.jsonnet'),
                                         # os.path.join(root, 'configs/finetune.jsonnet'),

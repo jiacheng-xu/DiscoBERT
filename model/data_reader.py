@@ -174,6 +174,14 @@ class CNNDMDatasetReader(DatasetReader):
                       (f, len(dataset)))
                 logger.info('Loading dataset from %s, number of examples: %d' %
                             (f, len(dataset)))
+                if 'cnn' in f:
+                    name='cnn'
+                elif 'dailymail' in f:
+                    name='dailymail'
+                elif 'nyt' in f:
+                    name = 'nyt'
+                else:
+                    name = 'unk'
                 for d in dataset:
                     yield self.text_to_instance(d['src'],
                                                 d['labels'],
@@ -189,7 +197,8 @@ class CNNDMDatasetReader(DatasetReader):
                                                 d['d_graph'],
                                                 d['disco_dep'],
                                                 d['doc_id'],
-                                                identify_partition_name(f)
+                                                identify_partition_name(f),
+                                                name
                                                 )
         else:
             files = os.listdir(file_path)
@@ -203,6 +212,14 @@ class CNNDMDatasetReader(DatasetReader):
                       (f, len(dataset)))
                 logger.info('Loading dataset from %s, number of examples: %d' %
                             (f, len(dataset)))
+                if 'cnn' in f:
+                    name='cnn'
+                elif 'dailymail' in f:
+                    name='dailymail'
+                elif 'nyt' in f:
+                    name = 'nyt'
+                else:
+                    name = 'unk'
                 for d in dataset:
                     yield self.text_to_instance(d['src'],
                                                 d['labels'],
@@ -218,7 +235,8 @@ class CNNDMDatasetReader(DatasetReader):
                                                 d['d_graph'],
                                                 d['disco_dep'],
                                                 d['doc_id'],
-                                                identify_partition_name(f)
+                                                identify_partition_name(f),
+                                                name
                                                 )
     @staticmethod
     def create_disco_coref( disco_coref, num_of_disco):
@@ -299,7 +317,8 @@ class CNNDMDatasetReader(DatasetReader):
                          disco_graph,
                          disco_dep,
                          doc_id: str,
-                         spilit_type
+                         spilit_type,
+                         dataset_name
                          ):
         assert len(segs) > 0
         assert len(labels) > 0
@@ -366,7 +385,7 @@ class CNNDMDatasetReader(DatasetReader):
         # print(dis_graph)
         # exit()
         meta_field = MetadataField({
-            "source": 'cnndm',
+            "source": dataset_name,
             "type": spilit_type,
             "sent_txt": sent_txt,
             "disco_txt": disco_txt,
