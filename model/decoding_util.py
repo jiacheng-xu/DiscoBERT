@@ -62,6 +62,7 @@ def std_decode_unit(sel_indexes, use_disco, source_txt, dependency_dict,
     # pred_word_lists = [[] for i in range(int((max_pred_word - min_pred_word) / step))]
     # pred_indexes_lists = [[] for i in range(int((max_pred_word - min_pred_word) / step))]
     pred_word_lists = []
+    pred_word_lists_full_sentence = []
     pred_indexes_lists = []
     current_trigrams = set()
     current_words = []
@@ -145,18 +146,21 @@ def std_decode_unit(sel_indexes, use_disco, source_txt, dependency_dict,
         pred.sort()
         splited = split_sentence_according_to_id(pred, use_disco, disco_map_2_sent)
         _t = []
+        _t_full = []
         for sp in splited:
             sp.sort()
             x = flatten([source_txt[s] for s in sp])
+            full_sentence = src_full_sent[disco_map_2_sent[sp[0]]]
             _t.append(TreebankWordDetokenizer().detokenize(easy_post_processing(x)))
-            # _t.append(" ".join(easy_post_processing(x)))
+            _t_full.append(TreebankWordDetokenizer().detokenize(easy_post_processing(full_sentence)))
+        pred_word_lists_full_sentence.append(_t_full)
         pred_word_lists.append(_t)
     # for idx, pred_word in enumerate(pred_word_lists):
     #     pred_word_strs.append(
     #         " ".join(easy_post_processing(pred_word))
     #     )
 
-    return pred_word_lists
+    return pred_word_lists, pred_word_lists_full_sentence
 
 
 def std_decode(stop_by_word_cnt, sel_indexes, use_disco, source_txt, dependency_dict,
@@ -545,9 +549,9 @@ def decode_entrance(prob, prob_mat, meta_data, use_disco, trigram_block: bool = 
                                         trigram_block, min_pred_word, max_pred_word,
                                         step, min_pred_unit, max_pred_unit)
         else:
-            pred_word_strs = std_decode_unit(sel_indexes, use_disco, src, dep_dic,
+            pred_word_strs,pred_word_lists_full_sentence = std_decode_unit(sel_indexes, use_disco, src, dep_dic,
                                              trigram_block,
                                              max_pred_unit,
                                              disco_map_2_sent,src_full_sent
                                              )
-    return pred_word_strs, tgt
+    return pred_word_strs, pred_word_lists_full_sentence,tgt

@@ -22,9 +22,12 @@ SUM_dir = 'sum'
 # 001fb4ca3bd3a0c1cd91fdc813f0ebeeac678e76.story.doc
 # raw_doc sum
 import os
+
 BUDGET = 1000
 
 import random
+
+
 def process_one_document(source: str):
     splits = source.split(DOC_SEG_TOKEN)
     random.shuffle(splits)
@@ -38,6 +41,8 @@ def process_one_document(source: str):
         lines = [l for l in lines if len(l.split(' ')) > 2]
         candidate_sentences.append(lines)
     print()
+
+
 def read_doc(dir, source_file, name):
     with open(os.path.join(dir, source_file), 'r') as fd:
         lines = fd.read().splitlines()

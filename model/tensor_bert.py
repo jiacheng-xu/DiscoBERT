@@ -18,6 +18,8 @@ from model.archival_gnns import GraphEncoder
 from model.decoding_util import decode_entrance
 from model.sem_red_map import MapKiosk
 
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 flatten = lambda l: [item for sublist in l for item in sublist]
 from torch.nn.functional import nll_loss
 import torch.nn as nn
@@ -467,7 +469,7 @@ class TensorBertSum(Model):
 
         batch_size, sent_num = masks.shape
         for b in range(batch_size):
-            pred_word_list_strs, tgt_str = decode_entrance(tuned_probs[b],
+            pred_word_list_strs, pred_word_lists_full_sentence, tgt_str = decode_entrance(tuned_probs[b],
                                                            tuned_mat_probs[b],
                                                            meta[b],
                                                            self._use_disco,
@@ -491,11 +493,15 @@ class TensorBertSum(Model):
                 if source_name == 'cnn':
                     pred_word_list_strs.append(pred_word_list_strs[-1])
                     pred_word_list_strs.pop(0)
+                    pred_word_lists_full_sentence.append(pred_word_lists_full_sentence[-1])
+                    pred_word_lists_full_sentence.pop(0)
                 for l in range(min_pred_unit, max_pred_unit):
                     pred_word_list_strs[l] = [x for x in pred_word_list_strs[l] if len(x) > 1]
                     getattr(self, 'rouge_{}_{}'.format(l, threshold_for_red_map))(
                         pred="<q>".join(pred_word_list_strs[l]),
-                        ref=tgt_str)
+                        ref=tgt_str,
+                        full_sent="<q>".join(pred_word_lists_full_sentence[l])
+                    )
         return output_dict
 
     def ultra_fine_metrics(self, dict_of_rouge):
@@ -596,8 +602,8 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError
 
-    # finetune = True
-    finetune = False
+    finetune = True
+    # finetune = False
 
     logger.info("AllenNLP version {}".format(allennlp.__version__))
 
@@ -607,7 +613,12 @@ if __name__ == '__main__':
 
     serialization_dir = tempfile.mkdtemp(prefix=os.path.join(root, 'tmp_exps'))
     if finetune:
-        model_arch = '/datadrive/GETSum/cnndm_fusion_continue'
+        # model_arch = '/datadrive/GETSum/cnndmfusion'
+        # model_arch = '/datadrive/GETSum/cnndm_disco_cc'
+        model_arch = '/datadrive/GETSum/aug28nyt_fusion'
+        # model_arch = '/datadrive/GETSum/nyt_fusion_continue'
+
+
         fine_tune_model_from_file_paths(model_arch,
                                         os.path.join(root, 'configs/baseline_bert.jsonnet'),
                                         # os.path.join(root, 'configs/finetune.jsonnet'),

@@ -155,10 +155,7 @@ def return_tree(d: OrderedDict):
     right_head = right_node['head']
     right_node_type = right_node['type']
 
-    if left_node_type == right_node_type:
-        my_head = left_head
-        my_dep = (left_head, right_head, root_node_rel)
-    elif left_node_type == 'Nucleus':
+    if left_node_type == right_node_type  or left_node_type == 'Nucleus':
         my_head = left_head
         my_dep = (left_head, right_head, root_node_rel)
     else:

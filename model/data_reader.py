@@ -175,9 +175,9 @@ class CNNDMDatasetReader(DatasetReader):
                 logger.info('Loading dataset from %s, number of examples: %d' %
                             (f, len(dataset)))
                 if 'cnn' in f:
-                    name='cnn'
+                    name = 'cnn'
                 elif 'dailymail' in f:
-                    name='dailymail'
+                    name = 'dailymail'
                 elif 'nyt' in f:
                     name = 'nyt'
                 else:
@@ -213,9 +213,9 @@ class CNNDMDatasetReader(DatasetReader):
                 logger.info('Loading dataset from %s, number of examples: %d' %
                             (f, len(dataset)))
                 if 'cnn' in f:
-                    name='cnn'
+                    name = 'cnn'
                 elif 'dailymail' in f:
-                    name='dailymail'
+                    name = 'dailymail'
                 elif 'nyt' in f:
                     name = 'nyt'
                 else:
@@ -238,8 +238,9 @@ class CNNDMDatasetReader(DatasetReader):
                                                 identify_partition_name(f),
                                                 name
                                                 )
+
     @staticmethod
-    def create_disco_coref( disco_coref, num_of_disco):
+    def create_disco_coref(disco_coref, num_of_disco):
         disco_coref = [x for x in disco_coref if x[0] != x[1]]
         coref_graph_as_list_of_tuple = [(x, x) for x in range(num_of_disco)]
 
@@ -271,6 +272,7 @@ class CNNDMDatasetReader(DatasetReader):
         #########
 
         return coref_graph_as_list_of_tuple
+
     @staticmethod
     def create_disco_graph(disco_graph, num_of_disco: int) -> List[tuple]:
 
@@ -377,7 +379,6 @@ class CNNDMDatasetReader(DatasetReader):
             disco_coref, num_of_disco
         )
         # print(coref_graph)
-
 
         dis_graph = self.create_disco_graph(
             disco_graph, num_of_disco

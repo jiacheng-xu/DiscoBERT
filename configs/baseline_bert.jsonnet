@@ -1,7 +1,7 @@
 local util = import "utils.libsonnet";
 
-//local debug=false;
-local debug=true;
+local debug=false;
+//local debug=true;
 
 local max_bpe=768;
 //local max_bpe=512;
@@ -12,8 +12,8 @@ local threshold_red_map = [0.0];
 local trigram_block=true;
 //local trigram_block=false;
 //local cuda_device = [0,1,2,3];
-local cuda_device = 0;
-//local cuda_device = 1;
+//local cuda_device = 0;
+local cuda_device = 1;
 //local cuda_device = 2;
 //local cuda_device = 3;
 
@@ -25,7 +25,6 @@ local semantic_red_map_loss='bin';
 local semantic_red_map_key = 'p';
 //local semantic_red_map_key = 'f';
 
-local model_archive = "/datadrive/GETSum/cnndm_disco_coref_fusion";
 local semantic_feedforard={
                 'input_dim': 768,
                 'hidden_dims': 768,  'activations': ['relu','linear'],  'dropout':0.2,
@@ -36,7 +35,8 @@ local bertsum_oracle=false;
 
 //local pair_oracle=true;
 local pair_oracle=false;
-local fusion_feedforward={    'input_dim': 768*2,
+local fusion_feedforward={
+                'input_dim': 768*2,
                 'hidden_dims': 768,
                 'activations': ['linear'],
                 'dropout':0.2,
@@ -64,7 +64,7 @@ local min_pred_unit=5;
 local max_pred_unit=9;
 
 local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 22 else  2088;
+local num_of_batch_per_train_epo= if debug then 22 else  2588;
 
 
 //local global_root = '/scratch/cluster/jcxu/GETSum';
@@ -117,8 +117,15 @@ local base_iterator={
 //    track_epoch: true,
 //    "sorting_keys": [["doc_text", "num_tokens"]],
     batch_size: BATCH_SIZE,
-    instances_per_epoch:num_of_batch_per_train_epo*BATCH_SIZE,
-     max_instances_in_memory: BATCH_SIZE * 30,
+    instances_per_epoch:num_of_batch_per_train_epo * BATCH_SIZE,
+     max_instances_in_memory: BATCH_SIZE * 80,
+  };
+
+local bucket_valid={
+    type: 'bucket',
+    biggest_batch_first:true,
+    "sorting_keys": [["tokens", "num_tokens"]],
+    batch_size: BATCH_SIZE*12,
   };
 
 local base_iterator_unlimit={
@@ -129,9 +136,6 @@ local base_iterator_unlimit={
   };
 local bert_model = "bert-base-uncased";
 local bert_vocab = global_root+"/bert_vocab";
-
-//local model_archive = "/datadrive/GETSum/tmp_expsx0o2m4hl";
-//local model_archive = "/datadrive/GETSum/tmp_expscqpap81m";
 
 //local model_archive = null;
 {
@@ -198,11 +202,12 @@ local bert_vocab = global_root+"/bert_vocab";
 //    num_workers: 1,
 //    output_queue_size: 130},
 
-    validation_iterator:{
-    type: 'multiprocess',
-    base_iterator: base_iterator_unlimit,
-    num_workers: 1,
-    output_queue_size: 130},
+    validation_iterator:base_iterator_unlimit,
+
+//    type: 'multiprocess',
+//    base_iterator: base_iterator_unlimit,
+//    num_workers: 1,
+//    output_queue_size: 130},
     "trainer": {
 //        "optimizer": {
 //            "type":optimizer,

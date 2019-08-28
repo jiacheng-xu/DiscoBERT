@@ -55,10 +55,11 @@ class PyrougeEvaluation(Metric):
         self.ref_path = ref_path
 
     @overrides
-    def __call__(self, pred: str, ref: str,
+    def __call__(self, pred: str, ref: str, full_sent: str,
                  **kwargs):
         self.pred_str_bag.append(pred)
         self.ref_str_bag.append(ref)
+        self.raw_str_bag.append(full_sent)
 
     def return_blank_metrics(self):
         all_metrics = {}
@@ -122,6 +123,12 @@ class PyrougeEvaluation(Metric):
                                                                            rouges[
                                                                                'rouge_l_f_score'],
                                                                            stamp)))
+        with open(os.path.join(self.cand_path, '{}_{}_{}_cand_full_{}.txt'.format(rouges['rouge_1_f_score'],
+                                                                                  rouges['rouge_2_f_score'],
+                                                                                  rouges[
+                                                                                      'rouge_l_f_score'],
+                                                                                  stamp)), 'w') as rawfd:
+            rawfd.write("\n".join(self.raw_str_bag))
         # all_metrics[self.name + '_A'] = (score['ROUGE-1-F'] + score['ROUGE-2-F'] + score['ROUGE-L-F']) / 3.
         # _ser_name = "{0:.3f},{1:.3f},{2:.3f}-{3}-{4}-{5}".format(score['ROUGE-1-F'], score['ROUGE-2-F'],
         #                                                          score['ROUGE-L-F'],
