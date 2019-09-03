@@ -20,34 +20,55 @@ if __name__ == '__main__':
                             ref_path=tmp_dir,
                             path_to_valid=tmp_dir
                             )
-    dataset = torch.load('/datadrive/data/cnndm/train/cnn.train.14.bert.pt')
-    random.shuffle(dataset)
-    dataset = dataset[:100]
-    trigram_block = False
-    map_service = MapKiosk()
-    datasetreader = CNNDMDatasetReader()
-    for d in dataset:
-        print(d)
-        sent = d['sent_txt']
-        tgt = d['tgt_tok_list_list_str']
-        tgt_str = d['tgt_list_str']
-        uni_f_score_list = [appx_simple_rouge_estimator(
-            sent[i], tgt
-        ) + random.random() / 5 for i in range(len(sent))]
-        maps = map_service.single_entry_entrance(sent, tgt
-                                                 )
-        sem_red_map = maps['red_map_p']
-        # sem_red_map = maps['red_map_f']
+    prg_disco = PyrougeEvaluation(name='rouge_disco',
+                                  cand_path=tmp_dir,
+                                  ref_path=tmp_dir,
+                                  path_to_valid=tmp_dir
+                                  )
 
-        disco_map_to_sent = datasetreader.map_disco_to_sent(d['d_span'])
-        pred_word_lists = universal_decoding_interface(np.asarray(uni_f_score_list),
-                                                       sem_red_map,
-                                                       use_disco=False,
-                                                       source_txt=sent,
-                                                       dependency_dict=None,
-                                                       trigram_block=trigram_block,
-                                                       max_pred_unit=3,
-                                                       disco_map_2_sent=disco_map_to_sent,
-                                                       threshold=0.3)
-        prg("<q>".join(pred_word_lists[2]), "<q>".join(tgt_str))
-    prg.get_metric(True)
+    dataset = []
+    import os
+
+    d_name = 'cnndm'
+    files = os.listdir('/datadrive/data/{}/test/'.format(d_name))
+    for f in files:
+        _d = torch.load('/datadrive/data/{}/test/'.format(d_name) + f)
+        dataset += _d
+    # random.shuffle(dataset)
+    dataset = dataset[:100]
+    # datasetreader = CNNDMDatasetReader()
+    for d in dataset:
+
+        lab = d['labels'][0]
+        d_lab = d['d_labels'][0]
+        # print(d)
+        sent = d['sent_txt']
+        sents = [" ".join(s) for idx, s in enumerate(sent) if lab[idx] == 1]
+        disco_txt = d['disco_txt']
+        discos = [" ".join(s) for idx, s in enumerate(disco_txt) if d_lab[idx] == 1]
+        # tgt = d['tgt_tok_list_list_str']
+        tgt_str = d['tgt_list_str']
+        print(tgt_str)
+        # uni_f_score_list = [appx_simple_rouge_estimator(
+        #     sent[i], tgt
+        # ) + random.random() / 5 for i in range(len(sent))]
+        # maps = map_service.single_entry_entrance(sent, tgt
+        #                                          )
+        # sem_red_map = maps['red_map_p']
+        # # sem_red_map = maps['red_map_f']
+        #
+        # disco_map_to_sent = datasetreader.map_disco_to_sent(d['d_span'])
+        # pred_word_lists = universal_decoding_interface(np.asarray(uni_f_score_list),
+        #                                                sem_red_map,
+        #                                                use_disco=False,
+        #                                                source_txt=sent,
+        #                                                dependency_dict=None,
+        #                                                trigram_block=trigram_block,
+        #                                                max_pred_unit=3,
+        #                                                disco_map_2_sent=disco_map_to_sent,
+        #                                                threshold=0.3)
+        # prg("<q>".join(sents), "<q>".join(tgt_str), "", "")
+        # prg_disco("<q>".join(discos), "<q>".join(tgt_str), "", "")
+
+    # prg.get_metric(True)
+    # prg_disco.get_metric(True)

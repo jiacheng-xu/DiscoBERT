@@ -45,6 +45,7 @@ class PyrougeEvaluation(Metric):
         self.pred_str_bag = []
         self.ref_str_bag = []
         self.raw_str_bag = []
+        self.id_bag = []
         self.name = name
         # self.writting_address = writting_address
         # self.path = path_to_valid
@@ -56,10 +57,12 @@ class PyrougeEvaluation(Metric):
 
     @overrides
     def __call__(self, pred: str, ref: str, full_sent: str,
+                 idstr: str,
                  **kwargs):
         self.pred_str_bag.append(pred)
         self.ref_str_bag.append(ref)
         self.raw_str_bag.append(full_sent)
+        self.id_bag.append(idstr)
 
     def return_blank_metrics(self):
         all_metrics = {}
@@ -83,17 +86,22 @@ class PyrougeEvaluation(Metric):
 
         logger = logging.getLogger()
         now = datetime.datetime.now()
-        stamp = "{}_{}_{}_{}".format(now.day, now.hour, now.minute, randomString(10))
+        stamp = "{}_{}_{}_{}_{}".format(now.month, now.day, now.hour, now.minute, randomString(10))
 
         print("{} samples in bag".format(len(self.pred_str_bag)))
 
         candidate_file_path = os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp))
+        candidate_full_file_path = os.path.join(self.cand_path, 'cand_full_{}.txt'.format(stamp))
         ref_file_path = os.path.join(self.ref_path, 'ref_{}.txt'.format(stamp))
         with open(candidate_file_path, 'w') as wfd:
             wfd.write("\n".join(self.pred_str_bag))
 
         with open(ref_file_path, 'w') as rfd:
             rfd.write("\n".join(self.ref_str_bag))
+        assert len(self.ref_str_bag) == len(self.raw_str_bag)
+
+        with open(candidate_full_file_path, 'w') as rawfd:
+            rawfd.write("\n".join(self.raw_str_bag))
 
         rouges = test_rouge(self.temp_dir,
                             os.path.join(self.cand_path, 'cand_{}.txt'.format(stamp)),
@@ -123,12 +131,13 @@ class PyrougeEvaluation(Metric):
                                                                            rouges[
                                                                                'rouge_l_f_score'],
                                                                            stamp)))
-        with open(os.path.join(self.cand_path, '{}_{}_{}_cand_full_{}.txt'.format(rouges['rouge_1_f_score'],
+
+        os.rename(candidate_full_file_path,
+                  os.path.join(self.cand_path, '{}_{}_{}_cand_full_{}.txt'.format(rouges['rouge_1_f_score'],
                                                                                   rouges['rouge_2_f_score'],
                                                                                   rouges[
                                                                                       'rouge_l_f_score'],
-                                                                                  stamp)), 'w') as rawfd:
-            rawfd.write("\n".join(self.raw_str_bag))
+                                                                                  stamp)))
         # all_metrics[self.name + '_A'] = (score['ROUGE-1-F'] + score['ROUGE-2-F'] + score['ROUGE-L-F']) / 3.
         # _ser_name = "{0:.3f},{1:.3f},{2:.3f}-{3}-{4}-{5}".format(score['ROUGE-1-F'], score['ROUGE-2-F'],
         #                                                          score['ROUGE-L-F'],
@@ -144,6 +153,7 @@ class PyrougeEvaluation(Metric):
     def reset(self):
         self.pred_str_bag = []
         self.ref_str_bag = []
+        self.raw_str_bag = []
         # print("Empty the bag!")
 
 
@@ -817,10 +827,9 @@ class Rouge155(object):
             os.makedirs(config_dir)
         return os.path.join(config_dir, 'settings.ini')
 
-
-#
-if __name__ == "__main__":
-    p = tempfile.mkdtemp(prefix='/datadrive/tmp/')
-    x = test_rouge(p, '/datadrive/tmp/cand.txt',
-                   '/datadrive/tmp/ref.txt')
-    print(x)
+# #
+# if __name__ == "__main__":
+#     p = tempfile.mkdtemp(prefix='/datadrive/tmp/')
+#     x = test_rouge(p, '/datadrive/tmp/cand.txt',
+#                    '/datadrive/tmp/ref.txt')
+#     print(x)

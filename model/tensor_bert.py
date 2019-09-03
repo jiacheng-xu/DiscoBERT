@@ -156,6 +156,7 @@ class TensorBertSum(Model):
         self._dropout = torch.nn.Dropout(p=dropout)
         self._classification_layer = torch.nn.Linear(in_features, 1)
         self._loss = torch.nn.BCELoss(reduction='none')
+        # self._loss = torch.nn.BCEWithLogitsLoss(reduction='none')
         self._layer_norm = MaskedLayerNorm(768)
         self._multi_orac = multi_orac
 
@@ -469,21 +470,22 @@ class TensorBertSum(Model):
 
         batch_size, sent_num = masks.shape
         for b in range(batch_size):
+            doc_id = meta[b]['doc_id']
             pred_word_list_strs, pred_word_lists_full_sentence, tgt_str = decode_entrance(tuned_probs[b],
-                                                           tuned_mat_probs[b],
-                                                           meta[b],
-                                                           self._use_disco,
-                                                           trigram_block,
-                                                           sem_red_matrix,
-                                                           pair_oracle,
-                                                           stop_by_word_cnt,
-                                                           min_pred_unit,
-                                                           max_pred_unit,
-                                                           self._step,
-                                                           self._min_pred_unit,
-                                                           self._max_pred_unit,
-                                                           threshold_for_red_map
-                                                           )
+                                                                                          tuned_mat_probs[b],
+                                                                                          meta[b],
+                                                                                          self._use_disco,
+                                                                                          trigram_block,
+                                                                                          sem_red_matrix,
+                                                                                          pair_oracle,
+                                                                                          stop_by_word_cnt,
+                                                                                          min_pred_unit,
+                                                                                          max_pred_unit,
+                                                                                          self._step,
+                                                                                          self._min_pred_unit,
+                                                                                          self._max_pred_unit,
+                                                                                          threshold_for_red_map
+                                                                                          )
 
             if self._stop_by_word_count:
                 for l in range(self.slot_num):
@@ -491,16 +493,19 @@ class TensorBertSum(Model):
                                                         ref=tgt_str)
             else:
                 if source_name == 'cnn':
-                    pred_word_list_strs.append(pred_word_list_strs[-1])
-                    pred_word_list_strs.pop(0)
-                    pred_word_lists_full_sentence.append(pred_word_lists_full_sentence[-1])
-                    pred_word_lists_full_sentence.pop(0)
+                    pred_word_list_strs.insert(0, pred_word_list_strs[0])
+                    pred_word_list_strs.pop(-1)
+                    pred_word_lists_full_sentence.insert(0, pred_word_lists_full_sentence[0])
+                    pred_word_lists_full_sentence.pop(-1)
                 for l in range(min_pred_unit, max_pred_unit):
                     pred_word_list_strs[l] = [x for x in pred_word_list_strs[l] if len(x) > 1]
+                    pred_word_lists_full_sentence[l] = [x for x in pred_word_lists_full_sentence[l] if len(x) > 1]
                     getattr(self, 'rouge_{}_{}'.format(l, threshold_for_red_map))(
                         pred="<q>".join(pred_word_list_strs[l]),
                         ref=tgt_str,
-                        full_sent="<q>".join(pred_word_lists_full_sentence[l])
+                        full_sent="<q>".join(pred_word_lists_full_sentence[l],
+
+                                             ), idstr=doc_id
                     )
         return output_dict
 
@@ -544,6 +549,9 @@ class TensorBertSum(Model):
                 obj_list = sum(obj_list, [])
             pool = multiprocessing.Pool(processes=10)
             results = pool.starmap(run_eval_worker, obj_list)
+            pool.close()
+            pool.join()
+
 
             if self._stop_by_word_count:
 
@@ -602,8 +610,8 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError
 
-    finetune = True
-    # finetune = False
+    # finetune = True
+    finetune = False
 
     logger.info("AllenNLP version {}".format(allennlp.__version__))
 
@@ -615,9 +623,8 @@ if __name__ == '__main__':
     if finetune:
         # model_arch = '/datadrive/GETSum/cnndmfusion'
         # model_arch = '/datadrive/GETSum/cnndm_disco_cc'
-        model_arch = '/datadrive/GETSum/aug28nyt_fusion'
+        model_arch = '/datadrive/GETSum/tmp_expsyj8uupql'
         # model_arch = '/datadrive/GETSum/nyt_fusion_continue'
-
 
         fine_tune_model_from_file_paths(model_arch,
                                         os.path.join(root, 'configs/baseline_bert.jsonnet'),

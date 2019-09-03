@@ -5,6 +5,15 @@ from nltk.tokenize.treebank import TreebankWordDetokenizer
 f = lambda x: TreebankWordDetokenizer().detokenize(x)
 from model.pyrouge_metrics import test_rouge
 
+
+def percent(inp, start=0.25, end=0.5):
+    l = len(inp)
+    s = int(l * start)
+    e = int(l * end)
+    # return sum(inp[s:e]) / sum(inp) * 100
+    return sum(inp[:10]) / sum(inp) * 100
+
+
 if __name__ == '__main__':
     import torch
 
@@ -15,9 +24,24 @@ if __name__ == '__main__':
     tokenized_ref = []
     detokenized_ref = []
     # x = torch.load('/datadrive/GETSum/bert_data/cnndm.test.0.bert.pt')
-    x = torch.load('/datadrive/data/cnndm/train/cnn.train.14.bert.pt')
+    # x = torch.load('/datadrive/data/nyt/test/nyt.test.17.bert.pt')
+    # x = torch.load('/datadrive/data/cnn/test/cnn.test.1.bert.pt')
+    x = torch.load('/datadrive/data/dailymail/chunk/dailymail.test.1.bert.pt')
+    top25 = []
+    top50 = []
+    top75 = []
     for every in x:
-        lead3 = every['src_txt'][:3]
+        lbs = every['labels'][0]
+        # lbs = every['d_labels'][0]
+        x = percent(lbs, 0, 0.25)
+        top25.append(x)
+
+        y = percent(lbs, 0.25, 0.5)
+        top50.append(y)
+
+        z = percent(lbs, 0.5, 0.75)
+        top75.append(z)
+        continue
         tokenzied_lead3.append("<q>".join(lead3))
         detok_lead3 = "<q>".join([f(x.split()) for x in lead3])
         detokenzied_lead3.append(detok_lead3)
@@ -27,6 +51,12 @@ if __name__ == '__main__':
 
         tokenized_ref.append(tgt)
         detokenized_ref.append("<q>".join(tgt_list_str))
+    import statistics
+
+    print(statistics.mean(top25))
+    print(statistics.mean(top50))
+    print(statistics.mean(top75))
+    quit()
     cand_tok = '/datadrive/tmp/cand_tok.txt'
     with open(cand_tok, 'w') as fd:
         fd.write("\n".join(tokenzied_lead3))

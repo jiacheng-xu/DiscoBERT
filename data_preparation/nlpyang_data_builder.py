@@ -61,13 +61,17 @@ bf3dd673d72edf70f431bb3a638a3cc124a3c3ae.story.doc.brackets
 ((12, 15), 'Nucleus', 'span')
 """
 
+from typing import List
 
-def read_discourse_merge(file):
+
+def read_discourse_merge(file) -> (List[List[tuple]], dict, dict):
     """
     Return a list of list of tuples
     [ sent_i [ tuples (start, end (inclusive)
     :param file:
-    :return:
+    :return: sent_disco_boundary: [ sent0 [(0,2),(3,9)], sent1 [(0,1),(2,10),(11,19),], ...]
+            EDU_to_sent dict: {'1':0, '2': 0, ....} # discourse start from 1!!!
+            edu_nsubj: dict determine if an EDU contains nsubj
     """
     # file = '/datadrive/data/cnn/segs/01a4c31112f1ceeeebbe8dce862f14f6792c03a3.story.doc.merge'
     with open(file, 'r') as fd:
@@ -84,22 +88,26 @@ def read_discourse_merge(file):
         items = l.split("\t")
         edu_id = str(items[-1])
         sent_id = int(items[0])
+        nsubj = str(items[5])
         word_index_in_sent = int(items[1]) - 1  # WARN this is indexed from 1 rather than 0 !!!!
 
         if edu_id in edu_dict:
             _t = edu_dict[edu_id]
             _t[2] = word_index_in_sent
+            edu_dict[edu_id][3] = edu_dict[edu_id][3] + [nsubj]
         else:
-            edu_dict[edu_id] = [sent_id, word_index_in_sent, word_index_in_sent]
+            edu_dict[edu_id] = [sent_id, word_index_in_sent, word_index_in_sent, [nsubj]]
     for k, v in edu_dict.items():
-        sent_id, start_idx, end_idx = v
+        sent_id, start_idx, end_idx, nsubj = v
         sent_with_edu_spans[sent_id].append((start_idx, end_idx))
 
     EDU_pool = {}
+    edu_nsubj = {}
     for k, v in edu_dict.items():
         EDU_pool[k] = v[0]
+        edu_nsubj[k] = v[3]
 
-    return sent_with_edu_spans, EDU_pool
+    return sent_with_edu_spans, EDU_pool, edu_nsubj
 
 
 from collections import OrderedDict
@@ -155,7 +163,7 @@ def return_tree(d: OrderedDict):
     right_head = right_node['head']
     right_node_type = right_node['type']
 
-    if left_node_type == right_node_type  or left_node_type == 'Nucleus':
+    if left_node_type == right_node_type or left_node_type == 'Nucleus':
         my_head = left_head
         my_dep = (left_head, right_head, root_node_rel)
     else:
@@ -208,12 +216,15 @@ def determine_head(left_node, right_node):
         return left_node['head']
 
 
-def new_return_tree(d, EDU_pool):
+def new_return_tree(d, EDU_pool, EDU_nsubj):
     root_node = d.popitem()  # root node
     root_node_sidx, root_node_eidx, root_node_node, root_node_rel = root_node[1]
     root_node_node = 'n' if root_node_node.startswith('N') else 's'
     if len(d) == 0:
         # reach the leaf node
+        if root_node_sidx == 1 and 'punct' == EDU_nsubj['{}'.format(root_node_sidx)][0]:
+            root_node_node = 's'
+
         return {
             'left': None,
             'right': None,
@@ -242,8 +253,8 @@ def new_return_tree(d, EDU_pool):
     left = listed_items[:cut_point]
     right = listed_items[cut_point:]
 
-    left_node = new_return_tree(OrderedDict(left), EDU_pool)
-    right_node = new_return_tree(OrderedDict(right), EDU_pool)
+    left_node = new_return_tree(OrderedDict(left), EDU_pool, EDU_nsubj)
+    right_node = new_return_tree(OrderedDict(right), EDU_pool, EDU_nsubj)
 
     # print('here')
     # my head is my left (if there are two N sons) N's head
@@ -251,8 +262,8 @@ def new_return_tree(d, EDU_pool):
 
     deps = left_node['dep'] + right_node['dep']
     # If one of my son is S, then add to dependency bank where dep(S) -> my head
-    if left_node['type'] == 's' and right_node['type'] == 's':
-        raise NotImplementedError
+    # if left_node['type'] == 's' and right_node['type'] == 's':
+    #     raise NotImplementedError
 
     if left_node['type'] == 's':
         if EDU_pool['{}'.format(left_node['s'])] == EDU_pool['{}'.format(my_head)] == EDU_pool[
@@ -266,6 +277,20 @@ def new_return_tree(d, EDU_pool):
             deps.append((right_node['head'], my_head))
             # for x in range(right_node['s'], right_node['e'] + 1):
             #     deps.append((x, my_head))
+    elif right_node['type'] == 'n':
+        if (EDU_pool['{}'.format(right_node['s'])]
+            == EDU_pool['{}'.format(right_node['e'])]
+            == EDU_pool['{}'.format(my_head)]) \
+                and (right_node['head'] != my_head):
+            nsubj_sign = False
+
+            nsubj = EDU_nsubj['{}'.format(my_head)]
+            if 'nsubj' in nsubj:
+                nsubj_sign = True
+
+            if nsubj_sign == False:
+                # print((right_node['head'], my_head))
+                deps.append((right_node['head'], my_head))
     # link: link the head of my sons
     links = left_node['link'] + right_node['link']
     links.append((left_node['head'], right_node['head'], root_node_rel))
@@ -286,7 +311,7 @@ def new_return_tree(d, EDU_pool):
     }
 
 
-def new_read_bracket(bracket_file, EDU_pool):
+def new_read_bracket(bracket_file, EDU_pool, EDU_nsubj):
     with open(bracket_file, 'r') as fd:
         lines = fd.read().splitlines()
     treebank = [None for _ in range(1000)]
@@ -302,7 +327,7 @@ def new_read_bracket(bracket_file, EDU_pool):
         if sidx == eidx:
             treebank[sidx] = [node, relation, None]
     d['{}_{}'.format(1, max_num)] = [1, max_num, 'Nucleus', 'ROOT']
-    x = new_return_tree(d, EDU_pool)
+    x = new_return_tree(d, EDU_pool, EDU_nsubj)
     # print(x['link'])
     # print(x['dep'])
     # exit()
@@ -365,12 +390,13 @@ def load_sum(fname, path) -> (List[str], List[List[str]]):
     return lower_lines, toks
 
 
+# new feat: add nsubj to check N + N case
 def load_merge_bracket(fname, path):
     merge_file = fname + '.story.doc.conll.merge'
     brack_file = fname + '.story.doc.conll.brackets'
-    disco_seg, EDU_pool = read_discourse_merge(os.path.join(path, merge_file))
+    disco_seg, EDU_pool, EDU_nsubj = read_discourse_merge(os.path.join(path, merge_file))
 
-    link, dep = new_read_bracket(os.path.join(path, brack_file), EDU_pool)
+    link, dep = new_read_bracket(os.path.join(path, brack_file), EDU_pool, EDU_nsubj)
     # node_meta, graph_links = read_bracket(os.path.join(path, brack_file))
     return disco_seg, dep, link
 
@@ -790,5 +816,5 @@ def format_processed_data(param):
 
 if __name__ == '__main__':
     load_merge_bracket(
-        'bf10dc849e5fa7325df269c2b28fcefebb5c956c', '/datadrive/data/cnn/segs/'
+        '35102a34467de2596044782f03b50c8e52179907', '/datadrive/data/cnn/segs/'
     )

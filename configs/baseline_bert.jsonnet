@@ -11,9 +11,11 @@ local threshold_red_map = [0.0];
 
 local trigram_block=true;
 //local trigram_block=false;
-//local cuda_device = [0,1,2,3];
+local cuda_device = [0,1,2,3];
+//local cuda_device = [2,3];
+//local cuda_device = [0,1];
 //local cuda_device = 0;
-local cuda_device = 1;
+//local cuda_device = 1;
 //local cuda_device = 2;
 //local cuda_device = 3;
 
@@ -27,7 +29,8 @@ local semantic_red_map_key = 'p';
 
 local semantic_feedforard={
                 'input_dim': 768,
-                'hidden_dims': 768,  'activations': ['relu','linear'],  'dropout':0.2,
+                'hidden_dims': 768,
+                'activations': ['relu','linear'],  'dropout':0.2,
          'num_layers': 2,};
 
 local bertsum_oracle=false;
@@ -44,7 +47,7 @@ local fusion_feedforward={
 local multi_orac=false;
 //local multi_orac=true;
 
-local BATCH_SIZE=6;
+local BATCH_SIZE=5;
 
 local use_disco=true;
 //local use_disco=false;
@@ -60,21 +63,22 @@ local matrix_attn={
 # CNN: disco: 3  6
 # CNNDM: disco: 5  8
 # NYT: disco: 5 8
-local min_pred_unit=5;
-local max_pred_unit=9;
+local min_pred_unit=3;
+local max_pred_unit=8;
 
 local dropout=0.2;
-local num_of_batch_per_train_epo= if debug then 22 else  2588;
+local num_of_batch_per_train_epo= if debug then 22 else  3000;
 
 
 //local global_root = '/scratch/cluster/jcxu/GETSum';
-//local root = '/scratch/cluster/jcxu/dailymail';
+//local root = '/scratch/cluster/jcxu/data/intern/cnndm';
 
 local global_root = '/datadrive/GETSum';
-//local root = '/datadrive/data/cnndm';
-local root = '/datadrive/data/nyt';
+local root = '/datadrive/data/cnndm';
+//local root = '/datadrive/data/nyt';
 //local root = '/datadrive/data/cnn';
 
+local tmp_dir=global_root+'/tmp/';
 
 //local bert_pretrain_model=global_root+"/nyt_disco";
 //local bert_pretrain_model=global_root+"/cnndm_disco_rst_43789";
@@ -171,6 +175,7 @@ local bert_vocab = global_root+"/bert_vocab";
 //        "bert_model": bert_model,
 //        "bert_config_file":bert_config,
         "bert_max_length":max_bpe,
+        "tmp_dir":tmp_dir,
         "bert_pretrain_model":bert_pretrain_model,
         "multi_orac":multi_orac,
         "fusion_feedforward":fusion_feedforward,
@@ -227,13 +232,13 @@ local bert_vocab = global_root+"/bert_vocab";
         },
         "summary_interval":1000,
         "keep_serialized_model_every_num_seconds":30*60,
-        "validation_metric": "+R_1",
-        "num_serialized_models_to_keep": 3,
-        "num_epochs": 50,
+        "validation_metric": "+R_2",
+        "num_serialized_models_to_keep": 2,
+        "num_epochs": 100,
         "patience": 10,
         "cuda_device": cuda_device,
         "grad_clipping":5,
-
+//        "fp16":true,
 //        "learning_rate_scheduler":{
 //        "type":"noam",
 //        'model_size':768,
