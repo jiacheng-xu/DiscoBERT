@@ -76,6 +76,7 @@ class GAT(nn.Module):
         h = self.layer2(h)
         return h
 
+
 import dgl.function as fn
 import torch
 import logging, itertools, dgl, random, torch, tempfile
@@ -90,13 +91,14 @@ from allennlp.modules.feedforward import FeedForward
 
 from allennlp.modules.layer_norm import LayerNorm
 
+
 @GraphEncoder.register("gat")
 class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
 
     def __init__(self, hdim: int = 768
                  ):
         super(GCN_layers, self).__init__()
-        self.gat =GAT
+        self.gat = GAT
 
     def transform_sent_rep(self, sent_rep, sent_mask, meta_field, key):
         init_graphs = self.convert_sent_tensors_to_graphs(sent_rep, sent_mask, meta_field, key)

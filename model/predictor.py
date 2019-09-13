@@ -4,6 +4,7 @@ from allennlp.common.util import JsonDict
 from allennlp.data import Instance
 from allennlp.predictors.predictor import Predictor
 
+
 @Predictor.register('tensor_bert')
 class TensorBertSumPredictor(Predictor):
     """
@@ -27,10 +28,9 @@ class TensorBertSumPredictor(Predictor):
         ext_oracle_index = json_dict['ext_oracle_index']
         seg_index = json_dict['seg_index']
         seg_index = [x + 1 for x in seg_index]
-        #TODO
+        # TODO
         raise NotImplementedError
         # run model for two times. One is for global mask, one is for local msk.
-
 
         other_data = {}
         return self._dataset_reader.text_to_instance(document,

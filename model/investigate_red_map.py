@@ -38,7 +38,6 @@ if __name__ == '__main__':
     dataset = dataset[:100]
     # datasetreader = CNNDMDatasetReader()
     for d in dataset:
-
         lab = d['labels'][0]
         d_lab = d['d_labels'][0]
         # print(d)

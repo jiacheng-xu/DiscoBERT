@@ -102,3 +102,19 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+/bert_data/0.43593_0.2077_0.40553_cand_9_1_22_53_vfnhhuxpcf.txt
+/bert_data/0.43593_0.2077_0.40553_cand_full_9_1_22_53_vfnhhuxpcf.txt
+/bert_data/0.43593_0.2077_0.40553_ref_9_1_22_53_vfnhhuxpcf.txt
+/bert_data/cnn.test.0.bert.pt
+/bert_data/cnn.test.1.bert.pt
+/bert_data/dailymail.test.0.bert.pt
+/bert_data/dailymail.test.1.bert.pt
+/bert_data/dailymail.test.2.bert.pt
+/bert_data/dailymail.test.3.bert.pt
+/bert_data/dailymail.test.4.bert.pt
+/bert_data/dailymail.test.5.bert.pt
+/bert_data/dailymail.test.6.bert.pt
+/bert_data/dailymail.test.7.bert.pt
+/bert_data/dailymail.test.8.bert.pt
+/bert_data/dailymail.test.9.bert.pt
+/bert_data/dailymail.test.10.bert.pt

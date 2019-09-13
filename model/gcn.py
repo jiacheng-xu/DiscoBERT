@@ -143,10 +143,10 @@ from typing import List, Union
 @GraphEncoder.register("gcn")
 class GCN_layers(GraphEncoder, torch.nn.Module, FromParams):
 
-    def __init__(self, hdim: int = 768,nlayers=2
+    def __init__(self, hdim: int = 768, nlayers=2
                  ):
         super(GCN_layers, self).__init__()
-        self.GCNNet = GCNNet(hdim,nlayers)
+        self.GCNNet = GCNNet(hdim, nlayers)
 
     def transform_sent_rep(self, sent_rep, sent_mask, meta_field, key):
         init_graphs = self.convert_sent_tensors_to_graphs(sent_rep, sent_mask, meta_field, key)

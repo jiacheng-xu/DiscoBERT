@@ -63,7 +63,7 @@ local matrix_attn={
 # CNN: disco: 3  6
 # CNNDM: disco: 5  8
 # NYT: disco: 5 8
-local min_pred_unit=4;
+local min_pred_unit=3;
 local max_pred_unit=8;
 
 local dropout=0.2;
@@ -74,8 +74,8 @@ local num_of_batch_per_train_epo= if debug then 22 else  3000;
 //local root = '/scratch/cluster/jcxu/data/intern/cnndm';
 
 local global_root = '/datadrive/GETSum';
-//local root = '/datadrive/data/cnndm';
-local root = '/datadrive/data/nyt';
+local root = '/datadrive/data/cnndm';
+//local root = '/datadrive/data/nyt';
 //local root = '/datadrive/data/cnn';
 
 local tmp_dir=global_root+'/tmp/';

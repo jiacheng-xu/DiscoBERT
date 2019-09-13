@@ -6,6 +6,9 @@ def percent(inp, start=0.25, end=0.5):
     # return sum(inp[:10]) / sum(inp) * 100
 
 
+from nltk.tokenize.treebank import TreebankWordDetokenizer
+
+f = lambda x: TreebankWordDetokenizer().detokenize(x)
 if __name__ == '__main__':
     import torch
 
@@ -19,7 +22,7 @@ if __name__ == '__main__':
         z = percent(lbs, 0.5, 1.0)
         if z > 70:
             # print(every)
-            print('-'*20)
+            print('-' * 20)
             print(" ".join(every['tgt_list_str']))
             print(every['doc_id'])
             did = every['doc_id']
@@ -38,4 +41,4 @@ if __name__ == '__main__':
                             sign = True
                     if sign:
                         print(idx)
-                        print(" ".join(disco_txt[idx])  )
+                        print(" ".join(disco_txt[idx]))

@@ -82,7 +82,8 @@ def appx_simple_rouge_estimator(sent: List[str], abs: List[List[str]]):
     rouge_2_p = rouge_2['p']
     # rouge_2 = cal_rouge(evaluated_2grams, reference_2grams)['f']
     # return rouge_1_f, rouge_1_r, rouge_1_p, rouge_2_f, rouge_2_r, rouge_2_p
-    return rouge_1_p+ rouge_2_p
+    return rouge_1_p + rouge_2_p
+
 
 def original_greedy_selection(doc_sent_list: List[List[str]], abstract_sent_list: List[List[str]], summary_size):
     def _rouge_clean(s):

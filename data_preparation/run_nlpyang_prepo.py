@@ -87,7 +87,7 @@ if __name__ == '__main__':
                         # default='combination',
                         type=str,
                         help='how to generate oracle summaries, greedy or combination, combination will generate more accurate oracles but take much longer time.')
-    parser.add_argument("-map_path", default='/datadrive/GETSum/data_preparation/urls_cnndm')
+    parser.add_argument("-map_path", default='/datadrive/DiscoBERT/data_preparation/urls_cnndm')
     parser.add_argument("-data_dir", default='/datadrive/data/cnn')
     parser.add_argument("-data_name", default='cnn')
     # parser.add_argument("-data_dir", default='/datadrive/data/dailymail')

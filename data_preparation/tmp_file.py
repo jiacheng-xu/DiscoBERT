@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 def load_cora_data():
     data = citegrh.load_cora()
     features = torch.FloatTensor(data.features)
@@ -22,6 +23,8 @@ def load_cora_data():
     g = DGLGraph(g)
     g.add_edges(g.nodes(), g.nodes())
     return g, features, labels, mask
+
+
 import time
 import numpy as np
 

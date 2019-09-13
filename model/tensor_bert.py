@@ -552,7 +552,6 @@ class TensorBertSum(Model):
             pool.close()
             pool.join()
 
-
             if self._stop_by_word_count:
 
                 for l in range(self.slot_num):
@@ -604,9 +603,9 @@ def build_vocab():
 
 if __name__ == '__main__':
     if os.path.isdir('/datadrive'):
-        root = "/datadrive/GETSum/"
+        root = "/datadrive/DiscoBERT/"
     elif os.path.isdir('/scratch/cluster/jcxu'):
-        root = '/scratch/cluster/jcxu/GETSum'
+        root = '/scratch/cluster/jcxu/DiscoBERT'
     else:
         raise NotImplementedError
 
@@ -621,10 +620,10 @@ if __name__ == '__main__':
 
     serialization_dir = tempfile.mkdtemp(prefix=os.path.join(root, 'tmp_exps'))
     if finetune:
-        # model_arch = '/datadrive/GETSum/cnndmfusion'
-        # model_arch = '/datadrive/GETSum/cnndm_disco_cc'
-        model_arch = '/datadrive/GETSum/tmp_expsyj8uupql'
-        # model_arch = '/datadrive/GETSum/nyt_fusion_continue'
+        # model_arch = '/datadrive/DiscoBERT/cnndmfusion'
+        # model_arch = '/datadrive/DiscoBERT/cnndm_disco_cc'
+        model_arch = '/datadrive/DiscoBERT/tmp_expsyj8uupql'
+        # model_arch = '/datadrive/DiscoBERT/nyt_fusion_continue'
 
         fine_tune_model_from_file_paths(model_arch,
                                         os.path.join(root, 'configs/baseline_bert.jsonnet'),

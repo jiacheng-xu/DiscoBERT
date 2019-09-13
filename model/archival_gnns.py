@@ -24,8 +24,7 @@ class GraphEncoder(_EncoderBase, Registrable):
 
     def is_bidirectional(self):
         raise NotImplementedError
-
-
+    #
     def convert_sent_tensors_to_graphs(self, sent, sent_mask, meta_field, key):
         batch_size, max_sent_num, hdim = sent.shape
         effective_length = torch.sum(sent_mask, dim=1).long().tolist()
@@ -45,6 +44,7 @@ class GraphEncoder(_EncoderBase, Registrable):
             G.ndata['h'] = this_sent  # every node has the parameter
             graph_bag.append(G)
         return graph_bag
+
 
 @GraphEncoder.register("easy_graph_encoder")
 class EasyGraph(GraphEncoder, torch.nn.Module, FromParams):

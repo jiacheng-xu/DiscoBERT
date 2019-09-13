@@ -57,6 +57,7 @@ flatten = lambda l: [item for sublist in l for item in sublist]
 # from model.tensor_bert import flatten, extract_n_grams, easy_post_processing
 from model.model_util import extract_n_grams, easy_post_processing, split_sentence_according_to_id
 
+
 def std_decode_unit(sel_indexes, use_disco, source_txt, dependency_dict,
                     trigram_block, max_pred_unit, disco_map_2_sent, src_full_sent):
     # pred_word_lists = [[] for i in range(int((max_pred_word - min_pred_word) / step))]
@@ -552,10 +553,10 @@ def decode_entrance(prob, prob_mat, meta_data, use_disco, trigram_block: bool = 
                                         trigram_block, min_pred_word, max_pred_word,
                                         step, min_pred_unit, max_pred_unit)
         else:
-            pred_word_strs,pred_word_lists_full_sentence = std_decode_unit(
+            pred_word_strs, pred_word_lists_full_sentence = std_decode_unit(
                 sel_indexes, use_disco, src, dep_dic,
-                                             trigram_block,
-                                             max_pred_unit,
-                                             disco_map_2_sent,src_full_sent
-                                             )
-    return pred_word_strs, pred_word_lists_full_sentence,tgt
+                trigram_block,
+                max_pred_unit,
+                disco_map_2_sent, src_full_sent
+            )
+    return pred_word_strs, pred_word_lists_full_sentence, tgt

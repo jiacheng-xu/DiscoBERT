@@ -26,6 +26,7 @@ from typing import List
 flatten = lambda l: [item for sublist in l for item in sublist]
 import multiprocessing
 
+
 class DocumentOracleDerivation(object):
     def __init__(self,
                  mixed_combination: bool,
@@ -138,7 +139,7 @@ class DocumentOracleDerivation(object):
         input = []
         for idx, x in enumerate(list_of_doc):
             for jdx, y in enumerate(list_of_doc):
-                input.append((idx, jdx, ref_sum,x+y))
+                input.append((idx, jdx, ref_sum, x + y))
                 s = self.get_rouge_ready_to_use(ref_sum, x + y)
                 score_matrix[idx][jdx] = s
                 # if f_score_list[idx] < 0.01:
@@ -161,7 +162,6 @@ class DocumentOracleDerivation(object):
         # fig = ax.get_figure()
         # fig.savefig("output.png")
 
-
         # ncpu=multiprocessing.cpu_count()
         # pool = multiprocessing.Pool(processes=ncpu)
         # results = pool.starmap(self.get_rouge_ready_to_use, input)
@@ -169,6 +169,7 @@ class DocumentOracleDerivation(object):
         #     score, idx,jdx = r
         #     score_matrix[idx][jdx] = score
         return f_score_list, score_matrix
+
     def comp_num_seg_out_of_p_sent_beam(self, _filtered_doc_list,
                                         num_sent_in_combination,
                                         target_ref_sum_list,
@@ -279,9 +280,10 @@ class DocumentOracleDerivation(object):
     def _rouge_clean(s):
         return re.sub(r'[^a-zA-Z0-9 ]', '', s)
 
-    def get_rouge_ready_to_use_w_index(self,gold_tokens: List[str],
-                               pred_tokens: List[str],idx,jdx):
-        return self.get_rouge_ready_to_use(gold_tokens,pred_tokens), idx,jdx
+    def get_rouge_ready_to_use_w_index(self, gold_tokens: List[str],
+                                       pred_tokens: List[str], idx, jdx):
+        return self.get_rouge_ready_to_use(gold_tokens, pred_tokens), idx, jdx
+
     # No synomous standard version
 
     def get_rouge_ready_to_use(self, gold_tokens: List[str],
@@ -301,7 +303,7 @@ class DocumentOracleDerivation(object):
 
         rouge_1 = cal_rouge(pred_unigram, gold_unigram, len_pred, len_gold)['f']
         rouge_2 = cal_rouge(pred_bigram, gold_bigram, len_pred, len_gold)['f']
-        rouge_score = (rouge_1 + rouge_2 ) / 2
+        rouge_score = (rouge_1 + rouge_2) / 2
         return rouge_score
 
     def pre_prune(self, list_of_doc: List[List[str]],
