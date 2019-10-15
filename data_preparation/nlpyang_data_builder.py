@@ -12,7 +12,7 @@ import gc
 import torch
 from pytorch_pretrained_bert import BertTokenizer
 
-from data_preparation.my_format_to_bert import MS_formate_to_bert
+from data_preparation.my_format_to_bert import single_format_to_bert
 from data_preparation.nlpyang_others_logging import logger
 from data_preparation.nlpyang_others_utils import clean
 from data_preparation.nlpyang_utils import _get_word_ngrams
@@ -538,25 +538,35 @@ class BertData():
         return src_subtoken_idxs, labels, segments_ids, cls_ids, src_txt, tgt_txt
 
 
-def format_to_bert(chunk_path, oracle_mode, oracle_sent_num, min_src_ntokens=5, max_src_ntokens=200, min_nsents=3,
+def format_to_bert(chunk_path, oracle_mode, oracle_sent_num, bert_model_name, min_src_ntokens=5, max_src_ntokens=200,
+                   min_nsents=3,
                    max_nsents=100, length_limit=766):
     datasets = ['train', 'valid', 'test']
 
     for corpus_type in datasets:
         a_lst = []
+        print(pjoin(chunk_path, '*' + corpus_type + '.*.json'))
         for json_f in glob.glob(pjoin(chunk_path, '*' + corpus_type + '.*.json')):
             real_name = json_f.split('/')[-1]
+            if 'roberta' in bert_model_name:
+                new_name = real_name.replace('json', 'roberta.pt')
+            elif 'bert' in bert_model_name:
+                new_name = real_name.replace('json', 'bert.pt')
+            else:
+                raise NotImplementedError
             a_lst.append(
-                (json_f, pjoin(chunk_path, real_name.replace('json', 'bert.pt')),
-                 oracle_mode, oracle_sent_num, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents, length_limit
+                (json_f, pjoin(chunk_path, new_name),
+                 oracle_mode, oracle_sent_num, bert_model_name,
+                 min_src_ntokens, max_src_ntokens, min_nsents,
+                 max_nsents, length_limit
                  )
             )
         print(a_lst)
         import random
         random.shuffle(a_lst)
-        MS_formate_to_bert(a_lst[0])
+        single_format_to_bert(a_lst[0])
         _p = Pool(multiprocessing.cpu_count())
-        for d in _p.imap(MS_formate_to_bert, a_lst):
+        for d in _p.imap(single_format_to_bert, a_lst):
             pass
 
         _p.close()

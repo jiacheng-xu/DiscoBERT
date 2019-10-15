@@ -1,22 +1,22 @@
-import logging, itertools, dgl, random, torch, tempfile
+import logging, random, torch, tempfile
 import multiprocessing
-from typing import Dict, List, Optional, Union
-import numpy as np
+from typing import Dict, Optional
 from allennlp.commands.fine_tune import fine_tune_model_from_file_paths
 from allennlp.commands.train import train_model
 from allennlp.common import Params
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models.model import Model
 from allennlp.modules.matrix_attention.matrix_attention import MatrixAttention
-from allennlp.modules.token_embedders.bert_token_embedder import PretrainedBertModel, PretrainedBertEmbedder
+from allennlp.modules.token_embedders.bert_token_embedder import PretrainedBertEmbedder
 from allennlp.nn import RegularizerApplicator
 from allennlp.nn.initializers import InitializerApplicator
 from overrides import overrides
-from pytorch_pretrained_bert.modeling import BertModel
 from collections import OrderedDict
-from model.archival_gnns import GraphEncoder
+from model.gcn import GCN_layers
+from transformers import AutoModel
+
+from depricated.archival_gnns import GraphEncoder
 from model.decoding_util import decode_entrance
-from model.sem_red_map import MapKiosk
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -25,19 +25,10 @@ from torch.nn.functional import nll_loss
 import torch.nn as nn
 from torch import autograd
 from allennlp.common import FromParams
-from model.gcn import GCN_layers
-from allennlp.modules.encoder_base import _EncoderBase
-from allennlp.common import Registrable
-from model.data_reader import CNNDMDatasetReader
 # from model.pythonrouge_metrics import RougeStrEvaluation
 from model.pyrouge_metrics import PyrougeEvaluation
-from multiprocessing import Pool, TimeoutError
-import time
-import os
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
-
-from pytorch_pretrained_bert import BertConfig
 
 from model.model_util import *
 
@@ -47,7 +38,6 @@ def run_eval_worker(obj):
 
 
 from allennlp.modules.seq2seq_encoders.seq2seq_encoder import Seq2SeqEncoder
-from allennlp.modules.seq2seq_encoders.multi_head_self_attention import MultiHeadSelfAttention
 
 
 @GraphEncoder.register("seq2seq")
@@ -73,21 +63,17 @@ class Identity(GraphEncoder, torch.nn.Module, FromParams):
         return sent_rep
 
 
-from collections import deque
-
 from allennlp.modules.feedforward import FeedForward
 
-from allennlp.modules.layer_norm import LayerNorm
 from allennlp.modules.masked_layer_norm import MaskedLayerNorm
 from allennlp.modules.span_extractors.span_extractor import SpanExtractor
-
-from model.model_util import easy_post_processing
 
 
 @Model.register("tensor_bert")
 class TensorBertSum(Model):
     def __init__(self, vocab: Vocabulary,
                  # bert_model: Union[str, BertModel],
+                 bert_model_name: str,
                  # bert_config_file: str,
                  debug: bool,
                  bert_pretrain_model: str,
@@ -125,23 +111,30 @@ class TensorBertSum(Model):
         # super(TensorBertSum, self).__init__(vocab, regularizer)
         super(TensorBertSum, self).__init__(vocab)
         self.debug = debug
-        self.embedder = PretrainedBertEmbedder('bert-base-uncased', requires_grad=True, top_layer_only=True)
 
+        self.embedder = AutoModel.from_pretrained(bert_model_name)
         self.bert_pretrain_model = bert_pretrain_model
-
         if bert_max_length > 512:
-            first_half = self.embedder.bert_model.embeddings.position_embeddings.weight
-            # ts = torch.zeros_like(first_half, dtype=torch.float32)
-            # second_half = ts.new_tensor(first_half, requires_grad=True)
+            if 'roberta' in bert_model_name:
+                first_half = self.embedder.embeddings.position_embeddings.weight
 
-            second_half = torch.zeros_like(first_half, dtype=torch.float32, requires_grad=True)
+                second_half = torch.zeros_like(first_half, dtype=torch.float32, requires_grad=True)
+                out = torch.cat([first_half, second_half], dim=0)
+                self.embedder.embeddings.position_embeddings.weight = torch.nn.Parameter(out)
+                self.embedder.embeddings.position_embeddings.num_embeddings *= 2
 
-            # second_half = torch.empty(first_half.size(), dtype=torch.float32,requires_grad=True)
-            # torch.nn.init.normal_(second_half, mean=0.0, std=1.0)
-            out = torch.cat([first_half, second_half], dim=0)
-            self.embedder.bert_model.embeddings.position_embeddings.weight = torch.nn.Parameter(out)
-            self.embedder.bert_model.embeddings.position_embeddings.num_embeddings = 512 * 2
-            self.embedder.max_pieces = 512 * 2
+            elif 'bert' in bert_model_name:
+                first_half = self.embedder.bert_model.embeddings.position_embeddings.weight
+                second_half = torch.zeros_like(first_half, dtype=torch.float32, requires_grad=True)
+                # second_half = torch.empty(first_half.size(), dtype=torch.float32,requires_grad=True)
+                # torch.nn.init.normal_(second_half, mean=0.0, std=1.0)
+                out = torch.cat([first_half, second_half], dim=0)
+                self.embedder.bert_model.embeddings.position_embeddings.weight = torch.nn.Parameter(out)
+                self.embedder.bert_model.embeddings.position_embeddings.num_embeddings = 512 * 2
+                self.embedder.max_pieces = 512 * 2
+            else:
+                raise NotImplementedError
+
         if bert_pretrain_model is not None:
             model_dump: OrderedDict = torch.load(os.path.join(bert_pretrain_model, 'best.th'))
             trimmed_dump_embedder = OrderedDict()
@@ -600,6 +593,8 @@ def build_vocab():
     params = Params.from_file(jsonnet_file)
     make_vocab_from_params(params, '/datadrive/bert_vocab')
 
+
+from model.data_reader import CNNDMDatasetReader
 
 if __name__ == '__main__':
     if os.path.isdir('/datadrive'):

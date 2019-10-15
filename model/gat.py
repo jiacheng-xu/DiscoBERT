@@ -1,8 +1,6 @@
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from model.archival_gnns import GraphEncoder
+from depricated.archival_gnns import GraphEncoder
 
 
 class GATLayer(nn.Module):
@@ -77,19 +75,11 @@ class GAT(nn.Module):
         return h
 
 
-import dgl.function as fn
 import torch
-import logging, itertools, dgl, random, torch, tempfile
 import torch.nn as nn
 import torch.nn.functional as F
 from allennlp.common import FromParams
-from dgl import DGLGraph
 from overrides import overrides
-from allennlp.modules.masked_layer_norm import MaskedLayerNorm
-
-from allennlp.modules.feedforward import FeedForward
-
-from allennlp.modules.layer_norm import LayerNorm
 
 
 @GraphEncoder.register("gat")

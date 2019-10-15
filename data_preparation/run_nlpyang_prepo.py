@@ -99,7 +99,7 @@ if __name__ == '__main__':
     parser.add_argument("-rel_tok_path", default='tokenized')
     parser.add_argument('-rel_rst_seg_path', default='segs')
     parser.add_argument("-rel_save_path", default='chunk')
-
+    parser.add_argument("-bert_model_name", default='roberta-base')
     parser.add_argument("-dplp_path", default="/datadrive/DPLP")
     parser.add_argument("-shard_size", default=1000, type=int)
     parser.add_argument('-min_nsents', default=3, type=int)
@@ -171,6 +171,7 @@ if __name__ == '__main__':
         start_time = time.time()
         format_to_bert(save_path,
                        oracle_mode=args.oracle_mode,
-                       oracle_sent_num=args.oracle_sent_num)
+                       oracle_sent_num=args.oracle_sent_num,
+                       bert_model_name=args.bert_model_name)
         duration = time.time() - start_time
         print("Mode {}\tDuration {}".format(args.oracle_mode, duration))

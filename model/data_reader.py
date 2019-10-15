@@ -1,39 +1,25 @@
-import nltk
-from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import *
-from allennlp.data.instance import Instance
-from allennlp.data.tokenizers import Tokenizer, WordTokenizer
 from allennlp.data.token_indexers import TokenIndexer, SingleIdTokenIndexer
-from allennlp.data.tokenizers.word_splitter import BertBasicWordSplitter
 
-from allennlp.data.dataset import Batch
-from allennlp.data.fields import TextField, ListField
+from allennlp.data.fields import TextField
 from allennlp.data.instance import Instance
-from allennlp.data.token_indexers.wordpiece_indexer import PretrainedBertIndexer
-from allennlp.data.tokenizers import WordTokenizer
-from allennlp.data.tokenizers.word_splitter import BertBasicWordSplitter
-from allennlp.data.vocabulary import Vocabulary
-from allennlp.modules.token_embedders.bert_token_embedder import BertEmbedder
 import sys
 import numpy
 from nltk.tokenize import TweetTokenizer
 
-from model.sem_red_map import MapKiosk
+from depricated.sem_red_map import MapKiosk
 
 tknzr = TweetTokenizer()
 from data_preparation.search_algo import original_greedy_selection
 
 numpy.set_printoptions(threshold=sys.maxsize)
-import string
-from allennlp.common.util import START_SYMBOL, END_SYMBOL
 import logging
-import os, torch, pickle
+import os, torch
 
-from typing import Dict, Optional, List, Any
+from typing import Dict, List
 
 from overrides import overrides
-import dgl
 
 
 def label_filter(labs):
@@ -52,7 +38,7 @@ def label_filter(labs):
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 import numpy as np
-import random, glob, gc
+import random, glob
 from allennlp.data.tokenizers.token import Token
 
 
@@ -88,7 +74,7 @@ def load_dataset(args, corpus_type, shuffle):
         yield _lazy_dataset_loader(pt, corpus_type)
 
 
-from allennlp.data.token_indexers.wordpiece_indexer import PretrainedBertIndexer
+from allennlp.data.token_indexers.pretrained_transformer_indexer import PretrainedTransformerIndexer
 
 
 def identify_partition_name(full_name):
@@ -100,33 +86,44 @@ def identify_partition_name(full_name):
         return 'test'
 
 
-from pytorch_pretrained_bert.tokenization import BertTokenizer
+# from pytorch_pretrained_bert.tokenization import BertTokenizer
+from transformers.tokenization_auto import AutoTokenizer
 
 
 @DatasetReader.register("cnndm")
 class CNNDMDatasetReader(DatasetReader):
     def __init__(self,
-
                  lazy: bool = True,
                  bert_model_name: str = 'bert-base-uncased',
                  max_bpe: int = None,
-                 token_indexers: Dict[str, TokenIndexer] = PretrainedBertIndexer("bert-base-uncased"),
+                 # token_indexers: Dict[str, TokenIndexer] = PretrainedTransformerIndexer(bert_model_name),
                  debug: bool = False,
                  bertsum_oracle: bool = True,
                  semantic_red_map: bool = True,
                  semantic_red_map_key: List[str] = None
                  ) -> None:
         super().__init__(lazy=lazy)
-        self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
-        if max_bpe is not None:
-            self._token_indexers['bert'].max_pieces = max_bpe
+
+        self._token_indexers = PretrainedTransformerIndexer(bert_model_name, True)
+        if 'roberta' in bert_model_name:
+            from transformers import RobertaTokenizer
+            self._token_indexers.tokenizer = RobertaTokenizer.from_pretrained(bert_model_name)
+            self.generic_tokenzier = RobertaTokenizer.from_pretrained(bert_model_name)
+        elif 'bert' in bert_model_name:
+            from transformers import BertTokenizer
+            self._token_indexers.tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+            self.generic_tokenzier = BertTokenizer.from_pretrained(bert_model_name)
+        # if max_bpe is not None:
+        #     self._token_indexers['bert'].max_pieces = max_bpe
         self._debug = debug
-        self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+
+        # self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
         # self.bert_tokenizer = WordTokenizer(word_splitter=BertBasicWordSplitter())
-        self.lowercase_input = "uncased" in bert_model_name
         logger.info("Finish Initializing of Dataset Reader")
-        self.bert_lut = list(self._token_indexers['bert'].vocab.items())
-        self.bert_lut = [x[0] for x in self.bert_lut]
+        if 'roberta' in bert_model_name:
+            self.bert_lut = self.generic_tokenzier.decoder
+        else:
+            self.bert_lut = self.generic_tokenzier.ids_to_tokens
         self.max_bpe = max_bpe
         self.train_pts = []
         self.bertsum_oracle = bertsum_oracle
@@ -341,7 +338,7 @@ class CNNDMDatasetReader(DatasetReader):
 
         num_of_disco = len(disco_label[0])
 
-        text_tokens = [Token(text=self.bert_lut[x], idx=x) for x in doc_text][1:-1]
+        text_tokens = [Token(text=self.bert_lut['{}'.format(x)], idx=x) for x in doc_text][1:-1]
         text_tokens = TextField(text_tokens, self._token_indexers
                                 )
 

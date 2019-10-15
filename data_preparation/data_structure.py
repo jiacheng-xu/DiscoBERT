@@ -11,19 +11,24 @@ from typing import List
 
 
 class MSBertData():
-    def __init__(self, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents):
+    def __init__(self, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents, tokenizer, bert_model_name):
         self.min_src_ntokens = min_src_ntokens
         self.max_src_ntokens = max_src_ntokens
         self.min_nsents = min_nsents
         self.max_nsents = max_nsents
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
+        self.tokenizer = tokenizer
         self.tokenizer.max_len = 768
-        self.sep_vid = self.tokenizer.vocab['[SEP]']
-        self.cls_vid = self.tokenizer.vocab['[CLS]']
-        self.pad_vid = self.tokenizer.vocab['[PAD]']
+        if 'roberta' in bert_model_name:
+            self.sep_vid = 2
+            self.cls_vid = 0
+            self.pad_vid = 1
+        else:
+            self.sep_vid = 102
+            self.cls_vid = 101
+            self.pad_vid = 0
         self.oracle_function = DocumentOracleDerivation(mixed_combination=True, tokenization=False)
 
-    def preprocess_sent(self, sent_bag, summary, oracle_size=5):
+    def preprocess_sent(self, sent_bag,bert_model_name, summary, oracle_size=5):
         # TO have: src_subtoken_idxs [for bert encoder], labels[sent level],
         # segments_ids[for bert encoder],
         # cls_ids[for sent level],
@@ -57,7 +62,11 @@ class MSBertData():
 
         src_tokens = []
         for idx, s in enumerate(sent_bag):
-            bpes = s.get_bpe_w_cls_sep()
+            if 'roberta' in bert_model_name:
+                bpes = s.get_bpe_w_cls_sep_roberta()
+            else:
+                bpes = s.get_bpe_w_cls_sep()
+
             src_tokens += bpes
             l = s.get_length_w_pad()
             original_src_txts.append(s.raw_words)

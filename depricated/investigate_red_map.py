@@ -1,11 +1,6 @@
-import torch, random
+import torch
 
-from data_preparation.search_algo import appx_simple_rouge_estimator
-from model.data_reader import CNNDMDatasetReader
-from model.decoding_util import universal_decoding_interface
 from model.pyrouge_metrics import PyrougeEvaluation
-from model.sem_red_map import MapKiosk
-import numpy as np
 
 if __name__ == '__main__':
     # sample some sentences, see if

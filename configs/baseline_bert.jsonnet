@@ -1,7 +1,7 @@
 local util = import "utils.libsonnet";
 
-local debug=false;
-//local debug=true;
+//local debug=false;
+local debug=true;
 
 local max_bpe=768;
 //local max_bpe=512;
@@ -49,8 +49,8 @@ local multi_orac=false;
 
 local BATCH_SIZE=5;
 
-local use_disco=true;
-//local use_disco=false;
+//local use_disco=true;
+local use_disco=false;
 
 local matrix_attn={
         type:"linear",
@@ -70,12 +70,13 @@ local dropout=0.2;
 local num_of_batch_per_train_epo= if debug then 22 else  3000;
 
 
-//local global_root = '/scratch/cluster/jcxu/DiscoBERT';
-//local root = '/scratch/cluster/jcxu/data/intern/cnndm';
+local global_root = '/scratch/cluster/jcxu/DiscoBERT';
+local root = '/scratch/cluster/jcxu/data_intern/cnndm';
 
-local global_root = '/datadrive/GETSum';
+//local global_root = '/datadrive/GETSum';
+
 //local root = '/datadrive/data/cnndm';
-local root = '/datadrive/data/nyt';
+//local root = '/datadrive/data/nyt';
 //local root = '/datadrive/data/cnn';
 
 local tmp_dir=global_root+'/tmp/';
@@ -88,12 +89,12 @@ local min_pred_word=40;
 local max_pred_word=130;
 
 
-//local use_disco_graph = false;
-//local use_coref=false;
+local use_disco_graph = false;
+local use_coref=false;
 
 
-local use_disco_graph = true;
-local use_coref=true;
+//local use_disco_graph = true;
+//local use_coref=true;
 
 //local use_disco_graph = false;
 //local use_coref=true;
@@ -138,7 +139,10 @@ local base_iterator_unlimit={
 //    "sorting_keys": [["doc_text", "num_tokens"]],
     batch_size: BATCH_SIZE*12,
   };
-local bert_model = "bert-base-uncased";
+
+//local bert_model = "bert-base-uncased";
+local bert_model = "roberta-base";
+
 local bert_vocab = global_root+"/bert_vocab";
 
 //local model_archive = null;
@@ -152,13 +156,13 @@ local bert_vocab = global_root+"/bert_vocab";
         "debug":debug,
         "bertsum_oracle":bertsum_oracle,
         "max_bpe":max_bpe,
-        "bert_model_name": "bert-base-uncased",
-        "token_indexers": {
-            "bert": {
-                "type": "bert-pretrained",
-                "pretrained_model": bert_model
-            }
-        }
+        "bert_model_name": bert_model,
+//        "token_indexers": {
+//            "bert": {
+//                "type": "bert-pretrained",
+//                "pretrained_model": bert_model
+//            }
+//        }
     },
 //    "datasets_for_vocab_creation": [],
      vocabulary: {
@@ -172,7 +176,7 @@ local bert_vocab = global_root+"/bert_vocab";
     "model": {
         "type": "tensor_bert",
         "debug":debug,
-//        "bert_model": bert_model,
+        "bert_model_name": bert_model,
 //        "bert_config_file":bert_config,
         "bert_max_length":max_bpe,
         "tmp_dir":tmp_dir,

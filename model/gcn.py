@@ -1,24 +1,14 @@
 # Graph Conv and Relational Graph Conv
-import dgl
 import dgl.function as fn
-import torch
-import logging, itertools, dgl, random, torch, tempfile
 import torch.nn as nn
 import torch.nn.functional as F
 from allennlp.common import FromParams
-from dgl import DGLGraph
-from overrides import overrides
-from allennlp.modules.masked_layer_norm import MaskedLayerNorm
-
-from allennlp.modules.feedforward import FeedForward
-
-from allennlp.modules.layer_norm import LayerNorm
 
 gcn_msg = fn.copy_src(src='h', out='m')
 gcn_reduce_sum = fn.sum(msg='m', out='h')
 gcn_reduce_max = fn.max(msg='m', out='h')
 # gcn_reduce_u_mul_v = fn.u_mul_v('m', 'h')
-from model.archival_gnns import GraphEncoder
+from depricated.archival_gnns import GraphEncoder
 
 
 class NodeApplyModule(nn.Module):
@@ -45,18 +35,13 @@ class GCN(nn.Module):
         return g.ndata.pop('h')
 
 
-from typing import List
-
 from overrides import overrides
 import torch
 from torch.nn import Dropout
 
 from allennlp.modules.feedforward import FeedForward
 from allennlp.modules.layer_norm import LayerNorm
-from allennlp.modules.seq2seq_encoders.multi_head_self_attention import MultiHeadSelfAttention
-from allennlp.modules.seq2seq_encoders.seq2seq_encoder import Seq2SeqEncoder
 from allennlp.nn.activations import Activation
-from allennlp.nn.util import add_positional_features
 
 
 class GCNNet(nn.Module):
@@ -137,7 +122,7 @@ class GCNNet(nn.Module):
         return output
 
 
-from typing import List, Union
+from typing import List
 
 
 @GraphEncoder.register("gcn")

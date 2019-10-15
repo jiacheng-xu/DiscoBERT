@@ -3,13 +3,21 @@ import os
 
 import gc
 import torch
-from pytorch_pretrained_bert import BertTokenizer
-
+# from pytorch_pretrained_bert import BertTokenizer
+from transformers import *
+from transformers import BertTokenizer
 from data_preparation.data_structure import MSBertData
 from data_preparation.nlpyang_others_logging import logger
 from data_preparation.nlpyang_others_utils import clean
 
-glob_bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
+# glob_bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
+
+# plm_tokenizers = {
+#     'bert-base-uncased': BertTokenizer.from_pretrained('bert-base-uncased'),
+#     'bert-large-uncased': BertTokenizer.from_pretrained('bert-large-uncased'),
+#     'roberta-large': RobertaTokenizer.from_pretrained('roberta-large'),
+#     'roberta-base': RobertaTokenizer.from_pretrained('roberta-base')
+# }
 
 import itertools
 
@@ -25,7 +33,8 @@ class SentUnit():
 
     def get_bpe_w_cls_sep(self):
         return ['[CLS]'] + self.bpes + ['[SEP]']
-
+    def get_bpe_w_cls_sep_roberta(self):
+        return ['<s>'] + self.bpes + ['</s>']
     def get_length_w_pad(self):
         return len(self.bpes) + 2
 
@@ -66,7 +75,7 @@ class DiscourseUnit():
     def get_bpe_only(self):
         return self.bert_word_pieces
 
-    def add_word(self, word_to_add, tokenizer=glob_bert_tokenizer):
+    def add_word(self, word_to_add, tokenizer):
         self.raw_words.append(word_to_add)
         self.bert_word_pieces += tokenizer.tokenize(word_to_add)
 
@@ -103,16 +112,19 @@ def get_next_node(inp):
         yield x
 
 
-def MS_formate_to_bert(params):
+def single_format_to_bert(params):
     # length_limit = 510
-    read_json_file, wt_pt_file, oracle_mode, oracle_sent_num, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents, length_limit = params
+    read_json_file, wt_pt_file, oracle_mode, oracle_sent_num, bert_model_name, min_src_ntokens, max_src_ntokens, min_nsents, max_nsents, length_limit = params
     # print(read_json_file)
     # TODO keep file exist check
+    from transformers.tokenization_auto import AutoTokenizer
+    # tokenizer = plm_tokenizers[bert_model_name]
+    tokenizer = AutoTokenizer.from_pretrained(bert_model_name)
     if os.path.exists(wt_pt_file):
         logger.info('Ignore %s' % wt_pt_file)
         return
     print("working on {}".format(wt_pt_file))
-    bert_data = MSBertData(min_src_ntokens, max_src_ntokens, min_nsents, max_nsents)
+    bert_data = MSBertData(min_src_ntokens, max_src_ntokens, min_nsents, max_nsents, tokenizer, bert_model_name)
 
     logger.info('Processing %s' % read_json_file)
     jobs = json.load(open(read_json_file))
@@ -155,7 +167,7 @@ def MS_formate_to_bert(params):
                 for jdx in range(start, end + 1):
                     _toks = this_tokens[jdx]
 
-                    disc_piece.add_word(_toks)
+                    disc_piece.add_word(_toks,tokenizer)
 
                     # look at word jdx, see if any coref mentions applied.
                     _cor = this_coref[jdx]
@@ -183,7 +195,7 @@ def MS_formate_to_bert(params):
         disc_oracle_ids, disc_spans, disc_coref = bert_data.preprocess_disc(disco_bag, tgt_tok_list_list_str)
 
         src_tok_index, sent_oracle_labels, segments_ids, \
-        cls_ids, original_sent_txt_list_of_str, tgt_txt = bert_data.preprocess_sent(sent_bag,
+        cls_ids, original_sent_txt_list_of_str, tgt_txt = bert_data.preprocess_sent(sent_bag,bert_model_name,
                                                                                     summary=tgt_tok_list_list_str)
         # TO have: src_subtoken_idxs [for bert encoder], labels[sent level and discourse level],
         # segments_ids[for bert encoder],
