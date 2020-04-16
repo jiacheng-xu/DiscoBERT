@@ -7,7 +7,10 @@ Contact: jcxu at cs dot utexas dot edu
 
 ## Illustration
 
-![Stage1](http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif=512*384)
+![Stage1](http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif)
+<img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif" width="200">
+<a href="url"><img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif" align="left" height="51" width="38" ></a>
+
 
 
 
