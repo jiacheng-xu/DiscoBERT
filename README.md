@@ -6,10 +6,11 @@ Authors: [Jiacheng Xu](http://www.cs.utexas.edu/~jcxu/) (University of Texas at 
 Contact: jcxu at cs dot utexas dot edu
 
 ## Illustration
-
-![Stage1](http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif)
 <img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif" width="200">
-<a href="url"><img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif" align="left" height="51" width="38" ></a>
+<img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif" width="400">
+<img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif" width="800">
+<img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif" width="1600">
+<a><img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif" align="left" height="51" width="38" ></a>
 
 
 
