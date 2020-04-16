@@ -6,7 +6,9 @@ Authors: [Jiacheng Xu](http://www.cs.utexas.edu/~jcxu/) (University of Texas at 
 Contact: jcxu at cs dot utexas dot edu
 
 ## Illustration
-<img src="https://github.com/jiacheng-xu/DiscoBERT/tree/release/demo/anigif1.gif" width="102" height="76" />
+
+![Stage1](https://github.com/jiacheng-xu/DiscoBERT/tree/release/demo/anigif1.gif)
+
 
 
 ## Prerequisites
