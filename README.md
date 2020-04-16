@@ -7,7 +7,7 @@ Contact: jcxu at cs dot utexas dot edu
 
 ## Illustration
 
-![Stage1](https://github.com/jiacheng-xu/DiscoBERT/tree/release/demo/anigif1.gif)
+![Stage1](http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif=512*384)
 
 
 
