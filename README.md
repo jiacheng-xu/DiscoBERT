@@ -1,5 +1,6 @@
 # :dancer:DiscoBERT: A Discourse-Aware Neural Extractive Model for Text Summarization
-Code repository for an ACL 2020 paper [A Discourse-Aware Neural Extractive Model for Text Summarization](https://arxiv.org/abs/1910.14142). 
+Code repository for an ACL 2020 paper [A Discourse-Aware Neural Extractive Model for Text Summarization](http://www.cs.utexas.edu/~jcxu/material/ACL20/DiscoBERT_ACL2020.pdf).  
+
 
 Authors: [Jiacheng Xu](http://www.cs.utexas.edu/~jcxu/) (University of Texas at Austin), [Zhe Gan](https://zhegan27.github.io), [Yu Cheng](https://sites.google.com/site/chengyu05/home), and [Jingjing Liu](https://www.linkedin.com/in/jingjing-liu-65703431/) (Microsoft Dynamics 365 AI Research).
 
