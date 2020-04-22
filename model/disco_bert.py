@@ -85,7 +85,7 @@ from model.model_util import easy_post_processing
 
 
 @Model.register("tensor_bert")
-class TensorBertSum(Model):
+class DiscoBertModel(Model):
     def __init__(self, vocab: Vocabulary,
                  # bert_model: Union[str, BertModel],
                  # bert_config_file: str,
@@ -122,8 +122,8 @@ class TensorBertSum(Model):
                  threshold_red_map: List = None,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
-        # super(TensorBertSum, self).__init__(vocab, regularizer)
-        super(TensorBertSum, self).__init__(vocab)
+        # super(DiscoBertModel, self).__init__(vocab, regularizer)
+        super(DiscoBertModel, self).__init__(vocab)
         self.debug = debug
         self.embedder = PretrainedBertEmbedder('bert-base-uncased', requires_grad=True, top_layer_only=True)
 
@@ -596,7 +596,7 @@ import allennlp
 def build_vocab():
     from allennlp.commands.make_vocab import make_vocab_from_params
 
-    jsonnet_file = os.path.join(root, 'configs/baseline_bert.jsonnet')
+    jsonnet_file = os.path.join(root, 'configs/DiscoBERT.jsonnet')
     params = Params.from_file(jsonnet_file)
     make_vocab_from_params(params, '/datadrive/bert_vocab')
 
@@ -607,14 +607,14 @@ if __name__ == '__main__':
     elif os.path.isdir('/scratch/cluster/jcxu'):
         root = '/scratch/cluster/jcxu/DiscoBERT'
     else:
-        raise NotImplementedError
+        raise NotImplementedError("Please specify root directory.")
 
     # finetune = True
     finetune = False
 
     logger.info("AllenNLP version {}".format(allennlp.__version__))
 
-    jsonnet_file = os.path.join(root, 'configs/baseline_bert.jsonnet')
+    jsonnet_file = os.path.join(root, 'configs/DiscoBERT.jsonnet')
     params = Params.from_file(jsonnet_file)
     print(params.params)
 
@@ -623,10 +623,9 @@ if __name__ == '__main__':
         # model_arch = '/datadrive/DiscoBERT/cnndmfusion'
         # model_arch = '/datadrive/DiscoBERT/cnndm_disco_cc'
         model_arch = '/datadrive/DiscoBERT/tmp_expsyj8uupql'
-        # model_arch = '/datadrive/DiscoBERT/nyt_fusion_continue'
 
         fine_tune_model_from_file_paths(model_arch,
-                                        os.path.join(root, 'configs/baseline_bert.jsonnet'),
+                                        os.path.join(root, 'configs/DiscoBERT.jsonnet'),
                                         # os.path.join(root, 'configs/finetune.jsonnet'),
                                         serialization_dir
                                         )

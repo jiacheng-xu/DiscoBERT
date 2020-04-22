@@ -6,7 +6,7 @@ from allennlp.predictors.predictor import Predictor
 
 
 @Predictor.register('tensor_bert')
-class TensorBertSumPredictor(Predictor):
+class DiscoBertPredictor(Predictor):
     """
     Predictor for sequence to sequence models, including
     :class:`~allennlp.models.encoder_decoder.simple_seq2seq` and

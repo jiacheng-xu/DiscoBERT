@@ -6,7 +6,7 @@ Authors: [Jiacheng Xu](http://www.cs.utexas.edu/~jcxu/) (University of Texas at 
 Contact: jcxu at cs dot utexas dot edu
 
 ## Illustration
-Click the GIF to see each slides build by build.
+Click the GIF to see each slide build by build.
 <a href="https://github.com/jiacheng-xu/DiscoBERT/tree/release/demo"><img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/gif1.gif" width="600"></a>
 
 
@@ -39,7 +39,11 @@ For CNNDM, we found that picking up 5 EDUs yields the best ROUGE F-1 score where
 * We tried `roberta-base` rather than `bert-base-uncased` as we used in this code repo and paper, but empirically it didn't perform better.   
 * The maxium document length is set to be 768 BPEs although we found `max_len=768` doesn't bring significant gain from `max_len=512`.
 
-
+To train or modify a model, there are several files to start with.
+* `model/disco_bert.py` is the model file. There are some unused conditions and hyper-parameters starting with "semantic_red" so you should ignore them.
+* `configs/DiscoBERT.jsonnet` is the configuration file which will be read by AllenNLP framework. 
+In the pre-trained model section of [https://utexas.box.com/v/DiscoBERT-ACL2020](https://utexas.box.com/v/DiscoBERT-ACL2020), we provided the configuration files for reference. 
+Basically we adopted most of the hyper-parameters from [PreSumm](https://github.com/nlpyang/PreSumm/blob/master/src/train.py).
 
 ## Citing
 ```
@@ -58,3 +62,4 @@ For CNNDM, we found that picking up 5 EDUs yields the best ROUGE F-1 score where
 * RST Discourse Segmentation is generated from [NeuEDUSeg](https://github.com/PKU-TANGENT/NeuralEDUSeg). I slightly modified the code to run with GPU. Please check my modification [here](https://github.com/jiacheng-xu/NeuralEDUSeg).
 * RST Discourse Parsing is generated from [DPLP](https://github.com/jiyfeng/DPLP). My customized version is [here](https://github.com/jiacheng-xu/DPLP) featuring batch implementation and remaining file detection. 
 Empirically I found that `NeuEDUSeg` provided better segmentation output than `DPLP` so we use `NeuEDUSeg` for segmentation and `DPLP` for parsing.  
+* The implementation of the graph module is based on [DGL](https://github.com/dmlc/dgl).
