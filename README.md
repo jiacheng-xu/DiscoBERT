@@ -12,7 +12,8 @@ Here is an example of discourse segmentation and RST tree conversion.
 
 
 ### Construction of Graphs: An Example
-The proposed discourse-aware model selects EDUs 1-1, 2-1, 5-2, 20-1, 20-3, 22-1. The right side of the figure illustrates the two discourse graphs we use: (1) Coref(erence) Graph (with the mentions of `Pulitzer prizes' highlighted as examples); and (2) RST Graph (induced by RST discourse trees). 
+The proposed discourse-aware model selects EDUs 1-1, 2-1, 5-2, 20-1, 20-3, 22-1. The right side of the figure illustrates the two discourse graphs we use: (1) Coref(erence) Graph (with the mentions of `Pulitzer prizes' highlighted as examples); and (2) RST Graph (induced by RST discourse trees).
+ 
 <a href="https://github.com/jiacheng-xu/DiscoBERT/tree/release/demo"><img src="http://www.cs.utexas.edu/~jcxu/material/ACL20/graph_const.gif" width="500"></a>
 
 
@@ -58,15 +59,15 @@ Here is a quick reference about our model performance based on `bert-base-uncase
 CNNDM:
 | Model        |  R1/R2/RL |
 | :-------------: |:-------------:|
-| `DiscoBERT`      | 43.38/20.44/40.21 |
-| `DiscoBERT` w. RST and Coref Graphs      | 43.77/20.85/40.67 | 
+| DiscoBERT      | 43.38/20.44/40.21 |
+| DiscoBERT w. RST and Coref Graphs      | 43.77/20.85/40.67 | 
 
 
 NYT:
 | Model        |  R1/R2/RL |
 | :-------------: |:-------------:|
-| `DiscoBERT`      | 49.78/30.30/42.44 |
-| `DiscoBERT` w. RST and Coref Graphs      | 50.00/30.38/42.70 | 
+| DiscoBERT      | 49.78/30.30/42.44 |
+| DiscoBERT w. RST and Coref Graphs      | 50.00/30.38/42.70 | 
 
 ## Citing
 ```
